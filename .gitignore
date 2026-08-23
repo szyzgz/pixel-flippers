@@ -1,0 +1,17 @@
+# Never commit ROMs or save data
+*.gb
+*.gbc
+*.gba
+*.nds
+*.sav
+*.state
+
+saves/
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.DS_Store
