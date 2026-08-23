@@ -30,13 +30,13 @@ class _Viewer:
     """Spectator window in a subprocess (macOS demands GUI on a main thread,
     and ours is busy being an MCP server). Frames stream over stdin."""
 
-    def __init__(self, width: int, height: int, scale: int):
+    def __init__(self, width: int, height: int, scale: int, title: str = "PIXEL FLIPPERS 🦭 — GBA"):
         import subprocess
         import sys
 
         self._proc = subprocess.Popen(
             [sys.executable, "-m", "pixel_flippers.viewer_proc",
-             str(width), str(height), str(scale), "PIXEL FLIPPERS 🦭 — GBA"],
+             str(width), str(height), str(scale), title],
             stdin=subprocess.PIPE,
         )
 
@@ -61,7 +61,7 @@ class _Viewer:
 class GBABackend:
     capabilities = {"buttons", "frames", "screenshot", "savestates"}
 
-    def __init__(self, rom_path: Path, window: str = "SDL2", scale: int = 3):
+    def __init__(self, rom_path: Path, window: str = "SDL2", scale: int = 3, player: str = ""):
         import stable_retro as retro
 
         if rom_path.suffix.lower() != ".gba":
@@ -91,7 +91,8 @@ class GBABackend:
         if window != "null":
             try:
                 h, w, _ = self._frame.shape
-                self._viewer = _Viewer(w, h, scale)
+                title = "PIXEL FLIPPERS 🦭 — GBA" + (f" — {player}" if player else "")
+                self._viewer = _Viewer(w, h, scale, title)
             except Exception:  # pygame missing or no display — play headless
                 self._viewer = None
 

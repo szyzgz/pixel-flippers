@@ -80,6 +80,9 @@ into the chat to hand over the controls.
 | `PIXEL_FLIPPERS_SCALE` | `3` | Window scale factor |
 | `PIXEL_FLIPPERS_SPEED` | `1` | Emulation speed (0 = unbounded) |
 | `PIXEL_FLIPPERS_MOCK` | off | Fake emulator, no ROM/PyBoy needed — for tests and plumbing checks |
+| `PIXEL_FLIPPERS_TRANSPORT` | `stdio` | `http` serves MCP at `http://127.0.0.1:<port>/mcp` for the `pf` CLI / Claude Code |
+| `PIXEL_FLIPPERS_PORT` | `8765` | Port for the `http` transport |
+| `PIXEL_FLIPPERS_PLAYER` | unset | Player name shown in the spectator window title |
 
 ### GBA games (Pokémon Emerald and friends)
 
@@ -95,6 +98,29 @@ file. A spectator window shows the game while Claude plays. This tier is
 **vision-only for now** (Gen 3 RAM is encrypted and pointer-chased — a decoder
 is future work), but save states work, so risky fights stay cheap. Hand over
 the controls with [`prompts/play-guide-gba.md`](prompts/play-guide-gba.md).
+
+### Playing from a terminal (Claude Code, scripts, a second player)
+
+The server can also run as a local HTTP service, so anything that speaks MCP —
+or the bundled `pf` CLI — can play. Handy for Claude Code, or for a second
+Claude with its own save folder and diary while the first plays through
+Claude Desktop (one emulator per process, so run one server per player):
+
+```bash
+PIXEL_FLIPPERS_BACKEND=gba PIXEL_FLIPPERS_ROM=/path/to/emerald.gba \
+PIXEL_FLIPPERS_SAVES=~/saves/player2 PIXEL_FLIPPERS_VAULT=~/vault/player2 \
+PIXEL_FLIPPERS_PLAYER="Player 2" PIXEL_FLIPPERS_TRANSPORT=http PIXEL_FLIPPERS_PORT=8765 \
+uv run --extra gba pixel-flippers &
+
+uv run pf tools                     # what can this tier do?
+uv run pf press start a             # press buttons
+uv run pf screenshot now.png        # look
+uv run pf call save_state '{"name": "before-roxanne"}'
+```
+
+`PIXEL_FLIPPERS_PLAYER` puts the name in the spectator window's title so two
+windows side by side stay tellable apart. The HTTP server binds to
+127.0.0.1 only.
 
 ### Trying it without a ROM
 

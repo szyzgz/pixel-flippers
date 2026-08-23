@@ -330,7 +330,7 @@ def main() -> None:
         from .gba_backend import GBABackend
 
         logger.info("Booting GBA %s (window=%s)", config.rom_path, config.window)
-        emulator = GBABackend(config.rom_path, config.window, config.scale)
+        emulator = GBABackend(config.rom_path, config.window, config.scale, config.player)
     elif config.backend == "switch":
         from .switch_backend import SwitchBackend
 
@@ -347,7 +347,13 @@ def main() -> None:
         logger.warning("No PIXEL_FLIPPERS_VAULT set — journal tools will error")
     harness = Harness(config, emulator, vault)
     try:
-        build_server(harness).run()
+        if config.transport == "http":
+            # Local service for terminal play (Claude Code, the `pf` CLI, anything
+            # that speaks MCP over streamable HTTP). Loopback only.
+            logger.info("Serving MCP over HTTP at http://127.0.0.1:%d/mcp", config.port)
+            build_server(harness).run(transport="streamable-http", host="127.0.0.1", port=config.port)
+        else:
+            build_server(harness).run()
     finally:
         emulator.close()
 
