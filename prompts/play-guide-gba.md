@@ -39,6 +39,21 @@ Without RAM state, your journal replaces the sixth sense:
 5. If your history feels thin (compaction), `read_last_session` and re-read
    Status before pressing anything.
 
+## Button rhythm (learned the hard way)
+
+- Text boxes: the first A while text is printing only finishes the print; the
+  next A advances. So mash in *pairs* with short waits (`["a"]`, wait ~40
+  frames, repeat) and check a screenshot every 6–10 presses so you don't
+  blow past a Yes/No.
+- **Close text with B, not A.** An extra A re-talks to whatever you're facing
+  (TVs, professors). B advances/closes without interacting.
+- Naming screens: Start jumps the cursor to OK, then A confirms. The keyboard
+  is a grid — A(0,0) … F(0,5), then `.`; G–L row 1; M–S row 2; T–Z row 3.
+- Walking: one d-pad press ≈ one tile. Doors/stairs are entered by walking
+  *into* them. Items on the floor: face them and press A.
+- NPC blocking a one-tile gap? Talk to them (A) to trigger their script, then
+  walk around.
+
 ## Tips for Hoenn specifically
 
 - Make a `title-screen` save state before starting a new game — cheap insurance.

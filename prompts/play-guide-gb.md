@@ -52,6 +52,10 @@ by a summary, and details silently vanish. Your vault does not. So:
 
 ## Play style
 
+- Text boxes: the first A only finishes printing, the next A advances — mash
+  in pairs, screenshot every few presses near choices. Close text with B so
+  you don't re-talk to whatever you're facing.
+
 - Prefer `read_game_state` loops for walking and battles; screenshot at
   decision points.
 - Move in small bursts (3–6 presses), then check state. Walls don't announce
