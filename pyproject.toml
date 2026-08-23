@@ -2,6 +2,7 @@
 name = "pixel-flippers"
 version = "0.1.0"
 description = "MCP server that gives Claude hands, eyes, and a diary for Pokémon — Game Boy, GBA, and a real Switch"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
