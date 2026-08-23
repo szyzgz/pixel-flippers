@@ -79,6 +79,10 @@ class GBABackend:
             "Custom-GbAdvance",
             state=retro.State.NONE,
             inttype=retro.data.Integrations.CUSTOM_ONLY,
+            # stable-retro defaults to FILTERED actions — an RL-friendly whitelist
+            # from the core JSON that omits START (bots shouldn't pause). We're a
+            # player, not a bot: take the raw 12-button MultiBinary space.
+            use_restricted_actions=retro.Actions.ALL,
             render_mode="rgb_array",
         )
         self._frame, _ = self._env.reset()

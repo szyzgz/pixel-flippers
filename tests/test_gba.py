@@ -104,3 +104,11 @@ def test_gba_harness_tool_surface(rom, backend, tmp_path):
     assert "Pressed: a" in result
     assert harness.screenshot().startswith(b"\x89PNG")
     assert "Saved" in harness.save_state("gba-test")
+
+
+def test_start_button_not_filtered(backend):
+    """stable-retro's default FILTERED mode silently drops START; we must use ALL."""
+    import stable_retro as retro
+
+    assert backend._env.unwrapped.use_restricted_actions == retro.Actions.ALL
+    assert "start" in backend._button_index
