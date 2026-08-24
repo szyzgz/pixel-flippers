@@ -28,28 +28,50 @@ GBA_BUTTONS = ("a", "b", "start", "select", "up", "down", "left", "right", "l", 
 
 class _Viewer:
     """Spectator window in a subprocess (macOS demands GUI on a main thread,
-    and ours is busy being an MCP server). Frames stream over stdin."""
+    and ours is busy being an MCP server). Frames stream over stdin.
+
+    If the window dies (system sleep, user closes it, crash), the next update
+    respawns it — up to a few times, so a genuinely broken display setup
+    degrades to headless instead of a respawn loop. The game never stops."""
+
+    MAX_RESPAWNS = 5
 
     def __init__(self, width: int, height: int, scale: int, title: str = "PIXEL FLIPPERS 🦭 — GBA"):
+        self._args = (width, height, scale, title)
+        self._respawns = 0
+        self._proc = self._spawn()
+
+    def _spawn(self):
         import subprocess
         import sys
 
-        self._proc = subprocess.Popen(
+        width, height, scale, title = self._args
+        return subprocess.Popen(
             [sys.executable, "-m", "pixel_flippers.viewer_proc",
              str(width), str(height), str(scale), title],
             stdin=subprocess.PIPE,
         )
 
     def update(self, frame: np.ndarray) -> None:
-        if self._proc.stdin is None:
+        if self._proc is None:
             return
         try:
             self._proc.stdin.write(frame.tobytes())
             self._proc.stdin.flush()
         except (BrokenPipeError, OSError):
-            self._proc.stdin = None  # viewer closed — keep playing headless
+            if self._respawns < self.MAX_RESPAWNS:
+                self._respawns += 1
+                try:
+                    self._proc.terminate()
+                except OSError:
+                    pass
+                self._proc = self._spawn()
+            else:
+                self._proc = None  # window keeps dying — play headless
 
     def close(self) -> None:
+        if self._proc is None:
+            return
         try:
             if self._proc.stdin:
                 self._proc.stdin.close()

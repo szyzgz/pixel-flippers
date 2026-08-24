@@ -112,3 +112,44 @@ def test_start_button_not_filtered(backend):
 
     assert backend._env.unwrapped.use_restricted_actions == retro.Actions.ALL
     assert "start" in backend._button_index
+
+
+def test_viewer_respawns_after_death(monkeypatch):
+    """A dead spectator window must be respawned on the next frame, not abandoned."""
+    import numpy as np
+
+    from pixel_flippers.gba_backend import _Viewer
+
+    spawned = []
+
+    class FakeStdin:
+        def __init__(self, broken):
+            self.broken = broken
+        def write(self, data):
+            if self.broken:
+                raise BrokenPipeError
+        def flush(self):
+            pass
+        def close(self):
+            pass
+
+    class FakeProc:
+        def __init__(self, broken):
+            self.stdin = FakeStdin(broken)
+        def terminate(self):
+            pass
+
+    def fake_spawn(self):
+        broken = len(spawned) == 0  # first process is dead, respawn is healthy
+        proc = FakeProc(broken)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(_Viewer, "_spawn", fake_spawn)
+    v = _Viewer(240, 160, 3)
+    frame = np.zeros((160, 240, 3), dtype=np.uint8)
+    v.update(frame)  # hits the broken pipe → respawn
+    assert len(spawned) == 2 and v._proc is spawned[1]
+    v.update(frame)  # healthy now, no further respawn
+    assert len(spawned) == 2
+    v.close()
