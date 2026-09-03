@@ -456,7 +456,7 @@ def main() -> None:
         else:
             build_server(harness).run()
     finally:
-        emulator.close()
+        harness.close_game()  # closes the emulator only if one was ever summoned
 
 
 if __name__ == "__main__":

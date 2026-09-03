@@ -114,3 +114,28 @@ Accessibility permission for the server process). Eyes = `screencapture -l
 <windowID>` of the Azahar window, split into top/bottom screens. Touch =
 CGEvent mouse click mapped into the bottom-screen rect → `touch(x,y)` tool.
 Launch Azahar via `open -a Azahar` for full functionality.
+
+## Backend built & driven live (2026-09-03, cont.)
+
+n3ds backend works against real Ultra Sun. VERIFIED: window capture (both
+screens), keyboard input advances the game, start_game/close_game summon flow.
+
+**Input nuance (important):** menus navigate by the **d-pad** (dup/ddown/
+dleft/dright → keys T/G/F/H); the **Circle Pad** (up/down/left/right → I/K/J/L)
+walks the 3D overworld. USUM's early screens (language, etc.) are button-only —
+their buttons live on the TOP screen, with only instructions on the bottom.
+
+**Layout:** Azahar shows both screens stacked (top=game, bottom=touch) in a
+landscape window with side letterboxing. `get_screenshot` returns the whole
+window (title bar + both screens + status bar); touch(x,y) is normalized over
+that same image, so aim from what you see.
+
+**Touch:** implemented (CGEvent mouse click at the mapped point) but NOT yet
+confirmed against a real touch menu — the screens tested had no touch targets.
+First live-play check: open an in-game bottom-screen menu and tap it; if the
+click doesn't register, the likely culprit is the host-click→3DS-touch mapping
+(retina/point vs pixel) — calibrate then.
+
+**Permissions:** host process needs Screen Recording (capture, worked) +
+Accessibility (input — had to enable for Terminal; enable for Claude Desktop
+when Mira/Fable play from the app).
