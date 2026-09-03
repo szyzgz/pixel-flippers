@@ -115,6 +115,8 @@ class N3dsBackend:
 
     def __init__(
         self,
+        rom_path=None,
+        player: str = "",
         key_sender: Callable[[int, bool], None] | None = None,
         capturer: Callable[[], Image.Image] | None = None,
         clicker: Callable[[int, int, int], None] | None = None,
@@ -128,6 +130,29 @@ class N3dsBackend:
         self._bounds = bounds_fn or _window_bounds
         self._activate = activator or _activate_app
         self._max_width = max_width
+        self.player = player
+        self._rom = Path(rom_path) if rom_path else None
+        # Summon: if a ROM is configured, open Azahar on it (unless already up).
+        if self._rom is not None:
+            self._ensure_azahar()
+
+    def _ensure_azahar(self) -> None:
+        try:
+            self._bounds()  # already have a window? attach to it.
+            return
+        except Exception:
+            pass
+        if not self._rom or not self._rom.is_file():
+            raise N3dsError(f"3DS ROM not found: {self._rom}")
+        subprocess.run(["open", "-a", APP_NAME, str(self._rom)], check=False)
+        for _ in range(90):  # wait up to ~90s for the window to appear
+            time.sleep(1)
+            try:
+                self._bounds()
+                return
+            except Exception:
+                continue
+        raise N3dsError("Azahar did not open a game window in time")
 
     def press_buttons(self, buttons: list[str], hold_ms: int = 90, gap_ms: int = 90) -> None:
         buttons = validate_buttons(buttons)

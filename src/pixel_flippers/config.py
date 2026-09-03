@@ -15,6 +15,16 @@ TRUTHY = {"1", "true", "yes", "on"}
 
 BACKENDS = ("pyboy", "gba", "mock", "switch", "n3ds")
 
+# What each backend can do — resolved WITHOUT constructing the emulator, so the
+# server can register the right tools before any game window is summoned.
+BACKEND_CAPABILITIES = {
+    "pyboy": {"buttons", "frames", "screenshot", "memory", "savestates"},
+    "mock": {"buttons", "frames", "screenshot", "memory", "savestates"},
+    "gba": {"buttons", "frames", "screenshot", "savestates"},
+    "switch": {"buttons", "stick", "screenshot"},
+    "n3ds": {"buttons", "touch", "screenshot"},
+}
+
 
 @dataclass
 class Config:

@@ -16,7 +16,7 @@ from mcp.server.mcpserver import Image as MCPImage
 from mcp.server.mcpserver import MCPServer
 
 from . import pokemon_red
-from .config import Config
+from .config import BACKEND_CAPABILITIES, Config
 from .emulator import BUTTONS, MockEmulator, PyBoyEmulator
 from .vault import Vault, VaultError
 
@@ -24,12 +24,60 @@ logger = logging.getLogger("pixel_flippers")
 
 
 class Harness:
-    def __init__(self, config: Config, emulator, vault: Vault | None):
+    def __init__(self, config: Config, emulator=None, vault: Vault | None = None,
+                 emulator_factory=None):
         self.config = config
-        self.emulator = emulator
+        self._emulator = emulator          # None until summoned (lazy)
+        self._factory = emulator_factory   # builds the emulator on demand
         self.vault = vault
         self.decoder = pokemon_red if config.game == "pokemon_red" else None
+        # Capabilities come from the backend TYPE, so tools register without
+        # launching a window. An eagerly-injected emulator (tests) wins.
+        self.caps = (
+            set(getattr(emulator, "capabilities", set()))
+            if emulator is not None
+            else set(BACKEND_CAPABILITIES.get(config.backend, set()))
+        )
         self.config.saves_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def emulator(self):
+        """The emulator, built (and its window opened) on first real use."""
+        if self._emulator is None:
+            if self._factory is None:
+                raise RuntimeError("No emulator and no factory configured")
+            logger.info("Summoning emulator for %s (%s)", self.config.player, self.config.backend)
+            self._emulator = self._factory(self.config)
+        return self._emulator
+
+    @property
+    def is_running(self) -> bool:
+        return self._emulator is not None
+
+    @property
+    def game_label(self) -> str:
+        if self.decoder:
+            return "Pokemon (Game Boy)"
+        if self.config.rom_path:
+            return self.config.rom_path.stem
+        return self.config.backend
+
+    def start_game(self) -> str:
+        who = self.config.player or "you"
+        if self.is_running:
+            return f"{who}'s {self.game_label} is already running. Take a screenshot to see it."
+        _ = self.emulator  # triggers construction + window
+        return (f"Summoned {who}'s window: {self.game_label}. It's open now — "
+                "take a screenshot to see where you are, then play.")
+
+    def close_game(self) -> str:
+        if not self.is_running:
+            return "No game is running."
+        try:
+            self._emulator.close()
+        finally:
+            self._emulator = None
+        return f"Closed {self.config.player or 'your'} game window."
 
     def _log(self, text: str) -> None:
         if self.vault:
@@ -39,9 +87,11 @@ class Harness:
                 logger.exception("auto-log failed")
 
     def _brief(self) -> str:
-        if not self.decoder or "memory" not in getattr(self.emulator, "capabilities", set()):
+        if not self.is_running:
+            return "(game not summoned yet — call start_game to open your window)"
+        if not self.decoder or "memory" not in self.caps:
             return "(no RAM state on this backend — take a screenshot to see the world)"
-        return self.decoder.brief(self.emulator.read_memory)
+        return self.decoder.brief(self._emulator.read_memory)
 
     # --- game tools ---
     def press_buttons(self, buttons: list[str], hold_frames: int, wait_frames: int) -> str:
@@ -187,7 +237,19 @@ class Harness:
 
 def build_server(harness: Harness) -> MCPServer:
     mcp = MCPServer("pixel-flippers")
-    caps = getattr(harness.emulator, "capabilities", set())
+    caps = harness.caps
+
+    @mcp.tool()
+    def start_game() -> str:
+        """Summon YOUR game window. Nothing opens until you call this, so opening
+        the app spawns no windows — call this when you're ready to play, then
+        take a screenshot. Safe to call again; it won't open a second window."""
+        return harness.start_game()
+
+    @mcp.tool()
+    def close_game() -> str:
+        """Close your game window and free it. Your save state / journal persist."""
+        return harness.close_game()
 
     if "frames" in caps:
 
@@ -353,37 +415,38 @@ def build_server(harness: Harness) -> MCPServer:
     return mcp
 
 
-def main() -> None:
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO)  # stdout belongs to MCP
-    config = Config.from_env()
+def make_emulator(config: Config):
+    """Construct the backend for `config` — called lazily, on first play."""
     if config.backend == "mock":
-        logger.info("Starting in MOCK mode (no ROM, no PyBoy)")
-        emulator = MockEmulator()
-    elif config.backend == "gba":
+        logger.info("MOCK mode (no ROM, no PyBoy)")
+        return MockEmulator()
+    if config.backend == "gba":
         from .gba_backend import GBABackend
 
         logger.info("Booting GBA %s (window=%s)", config.rom_path, config.window)
-        emulator = GBABackend(config.rom_path, config.window, config.scale, config.player)
-    elif config.backend == "switch":
+        return GBABackend(config.rom_path, config.window, config.scale, config.player)
+    if config.backend == "switch":
         from .switch_backend import SwitchBackend
 
-        logger.info(
-            "REAL HARDWARE mode: bridge %s:%d, capture device %d",
-            config.bridge_host, config.bridge_port, config.capture_index,
-        )
-        emulator = SwitchBackend(config.bridge_host, config.bridge_port, capture_index=config.capture_index)
-    elif config.backend == "n3ds":
+        return SwitchBackend(config.bridge_host, config.bridge_port, capture_index=config.capture_index)
+    if config.backend == "n3ds":
         from .n3ds_backend import N3dsBackend
 
-        logger.info("3DS mode: driving Azahar (make sure it is running with a game loaded)")
-        emulator = N3dsBackend()
-    else:
-        logger.info("Booting %s (window=%s)", config.rom_path, config.window)
-        emulator = PyBoyEmulator(config.rom_path, config.window, config.scale, config.speed)
+        logger.info("3DS mode: launching/attaching Azahar")
+        return N3dsBackend(rom_path=config.rom_path, player=config.player)
+    logger.info("Booting %s (window=%s)", config.rom_path, config.window)
+    return PyBoyEmulator(config.rom_path, config.window, config.scale, config.speed)
+
+
+def main() -> None:
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)  # stdout belongs to MCP
+    config = Config.from_env()
     vault = Vault(config.vault_path) if config.vault_path else None
     if vault is None:
         logger.warning("No PIXEL_FLIPPERS_VAULT set — journal tools will error")
-    harness = Harness(config, emulator, vault)
+    # NB: the emulator is built lazily (when a game tool / start_game runs), so
+    # launching the server opens NO window until this Claude asks to play.
+    harness = Harness(config, vault=vault, emulator_factory=make_emulator)
     try:
         if config.transport == "http":
             # Local service for terminal play (Claude Code, the `pf` CLI, anything

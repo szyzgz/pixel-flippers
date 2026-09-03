@@ -125,3 +125,42 @@ def test_n3ds_tool_surface(tmp_path):
 
     assert "Tapped" in harness.touch(0.5, 0.8, 120)
     assert "Pressed: a up" in harness.press_buttons_ms(["a", "up"], 1, 1)
+
+
+def test_lazy_no_emulator_until_summoned(tmp_path):
+    """Server must build tools + not construct the emulator until start_game."""
+    import anyio
+    from pixel_flippers.config import Config
+    from pixel_flippers.server import Harness, build_server
+
+    built = {"n": 0}
+    def factory(cfg):
+        built["n"] += 1
+        return make_backend(FakeHW())
+
+    cfg = Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds",
+                           "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+                           "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v")})
+    h = Harness(cfg, vault=Vault(cfg.vault_path), emulator_factory=factory)
+    server = build_server(h)  # tools resolve from static caps
+    tools = {tt.name for tt in anyio.run(server.list_tools)}
+    assert {"start_game", "close_game", "press_buttons", "touch"} <= tools
+    assert built["n"] == 0 and not h.is_running          # nothing launched yet
+
+    msg = h.start_game()
+    assert "Summoned" in msg and h.is_running and built["n"] == 1
+    assert "already running" in h.start_game() and built["n"] == 1  # no 2nd window
+
+    assert "Closed" in h.close_game() and not h.is_running
+
+
+def test_read_last_session_does_not_summon(tmp_path):
+    from pixel_flippers.config import Config
+    from pixel_flippers.server import Harness
+
+    cfg = Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds",
+                           "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+                           "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v")})
+    h = Harness(cfg, vault=Vault(cfg.vault_path), emulator_factory=lambda c: make_backend(FakeHW()))
+    h.read_last_session()          # must not open a window
+    assert not h.is_running
