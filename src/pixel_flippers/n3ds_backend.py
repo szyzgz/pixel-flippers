@@ -103,11 +103,16 @@ def _default_clicker(abs_x: int, abs_y: int, hold_ms: int) -> None:
     import Quartz
 
     pt = Quartz.CGPointMake(abs_x, abs_y)
-    down = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, pt, Quartz.kCGMouseButtonLeft)
-    up = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, pt, Quartz.kCGMouseButtonLeft)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
-    time.sleep(max(0, hold_ms) / 1000)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+    # Azahar only registers a stylus touch if the cursor is MOVED to the point
+    # first (it tracks hover); a bare down/up is ignored. Move, then tap.
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                       Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, pt, 0))
+    time.sleep(0.04)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                       Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, pt, 0))
+    time.sleep(max(1, hold_ms) / 1000)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                       Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, pt, 0))
 
 
 class N3dsBackend:

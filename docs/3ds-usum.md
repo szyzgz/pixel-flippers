@@ -139,3 +139,13 @@ click doesn't register, the likely culprit is the host-click→3DS-touch mapping
 **Permissions:** host process needs Screen Recording (capture, worked) +
 Accessibility (input — had to enable for Terminal; enable for Claude Desktop
 when Mira/Fable play from the app).
+
+## TOUCH VERIFIED (2026-09-03 playtest)
+
+Played the full intro + character creation with buttons, reached the on-screen
+name keyboard (a real bottom-screen touch target), and confirmed the stylus
+types letters. KEY FIX: Azahar only registers a touch if the cursor is MOVED to
+the point before the click (kCGEventMouseMoved, then down/up) — a bare click is
+ignored. Baked into _default_clicker. Coordinate precision is the player's job:
+read the key position off the screenshot, tap, verify, adjust (self-correcting).
+Full stack (summon → buttons → eyes → touch) works end-to-end on real Ultra Sun.
