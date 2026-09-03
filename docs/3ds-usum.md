@@ -76,3 +76,41 @@ References: [Azahar](https://azahar-emu.org/) ·
 [RPC default-off change](https://retrohandhelds.gg/azahar-made-a-quiet-change-that-could-save-you-trouble-later/) ·
 [CitraRNG](https://github.com/Admiral-Fish/CitraRNG) ·
 [MH HP overlay (Python RPC client example)](https://github.com/Alexander-Lancellott/MH-HP-Overlay-For-3DS-Emulator)
+
+## Live setup findings (2026-09-03, verified on M5 Pro)
+
+**Status: Ultra Sun boots and plays full-speed in Azahar 2126.0, passes
+character creation.** Tier confirmed buildable. ROM lives at
+`~/pixel-flippers/roms/` (NOT Downloads — macOS TCC blocks reads there).
+
+**Azahar keyboard map** (from `~/Library/Application Support/Azahar/config/qt-config.ini`,
+`[Controls]` profile 1 — these are the physical keys the backend must synthesize):
+
+| 3DS button | Key | | 3DS button | Key |
+|---|---|---|---|---|
+| A | A | | D-pad Up | T |
+| B | S | | D-pad Down | G |
+| X | Z | | D-pad Left | F |
+| Y | X | | D-pad Right | H |
+| L | Q | | Start | M |
+| R | W | | Select | N |
+| ZL | 1 | | Home | B |
+| ZR | 2 | | | |
+
+**Circle Pad (main overworld movement, analog-from-keyboard):** Up=I, Down=K,
+Left=J, Right=L, slow-walk modifier=D. C-stick: arrow keys.
+So walking Alola = the I/J/K/L cluster, not the d-pad.
+
+**Memory reads:** `enable_rpc_server=false` by default (line ~223) — flip to
+`true` while Azahar is CLOSED (it rewrites config on exit), then relaunch.
+Also `gdbstub_port=24689` exists as a fallback (GDB remote reads memory but
+halts the CPU on attach — RPC is the live-read path). RPC protocol/port still
+needs probing once enabled — that's the first Phase-2 calibration step.
+
+**Backend build plan (n3ds):** capabilities `{buttons, touch, screenshot}`
+first (vision-only, mirrors how Emerald shipped), memory added after RPC is
+verified. Hands = synthesize the keys above via macOS CGEvent/Quartz (needs
+Accessibility permission for the server process). Eyes = `screencapture -l
+<windowID>` of the Azahar window, split into top/bottom screens. Touch =
+CGEvent mouse click mapped into the bottom-screen rect → `touch(x,y)` tool.
+Launch Azahar via `open -a Azahar` for full functionality.

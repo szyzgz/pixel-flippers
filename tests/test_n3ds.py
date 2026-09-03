@@ -1,0 +1,127 @@
+"""3DS/Azahar backend tests — pure logic with injected fake hardware."""
+
+import pytest
+from PIL import Image
+
+from pixel_flippers.config import Config
+from pixel_flippers.n3ds_backend import (
+    KEYCODES,
+    N3DS_BUTTONS,
+    N3dsBackend,
+    N3dsError,
+    clamp01,
+    validate_buttons,
+)
+from pixel_flippers.server import Harness, build_server
+from pixel_flippers.vault import Vault
+
+
+class FakeHW:
+    """Records key/click events; serves a fixed window geometry + image."""
+
+    def __init__(self, bounds=(100, 50, 800, 600, 42)):
+        self.keys = []       # (keycode, down)
+        self.clicks = []      # (abs_x, abs_y, hold_ms)
+        self.activated = 0
+        self._bounds = bounds
+
+    def key(self, code, down):
+        self.keys.append((code, down))
+
+    def click(self, x, y, hold):
+        self.clicks.append((x, y, hold))
+
+    def bounds(self):
+        return self._bounds
+
+    def activate(self):
+        self.activated += 1
+
+    def capture(self):
+        return Image.new("RGB", (1600, 1200), (20, 30, 40))
+
+
+def make_backend(hw):
+    return N3dsBackend(
+        key_sender=hw.key, capturer=hw.capture, clicker=hw.click,
+        bounds_fn=hw.bounds, activator=hw.activate,
+    )
+
+
+def test_keymap_is_complete_and_distinct():
+    for b in ("a", "b", "x", "y", "l", "r", "zl", "zr", "start", "select",
+              "home", "up", "down", "left", "right", "dup", "ddown", "dleft", "dright"):
+        assert b in KEYCODES
+    assert len(set(KEYCODES.values())) == len(KEYCODES)  # no key collisions
+
+
+def test_validate_buttons():
+    assert validate_buttons(["A", " b ", "Start"]) == ["a", "b", "start"]
+    with pytest.raises(N3dsError, match="konami"):
+        validate_buttons(["konami"])
+
+
+def test_press_sequence_sends_down_then_up_per_button():
+    hw = FakeHW()
+    b = make_backend(hw)
+    b.press_buttons(["a", "up"], hold_ms=1, gap_ms=1)
+    assert hw.activated == 1
+    assert hw.keys == [
+        (KEYCODES["a"], True), (KEYCODES["a"], False),
+        (KEYCODES["up"], True), (KEYCODES["up"], False),
+    ]
+
+
+def test_movement_maps_to_circle_pad():
+    # up/down/left/right must be the Circle Pad keys (I/K/J/L), not the d-pad
+    assert (KEYCODES["up"], KEYCODES["down"], KEYCODES["left"], KEYCODES["right"]) == (34, 40, 38, 37)
+    assert KEYCODES["dup"] != KEYCODES["up"]
+
+
+def test_touch_maps_normalized_to_window_pixels():
+    hw = FakeHW(bounds=(100, 50, 800, 600, 42))
+    b = make_backend(hw)
+    b.touch(0.5, 0.5)                 # center → (100+400, 50+300)
+    b.touch(0.0, 0.0)                 # top-left → window origin
+    b.touch(1.0, 1.0)                 # bottom-right → far corner
+    assert hw.clicks[0][:2] == (500, 350)
+    assert hw.clicks[1][:2] == (100, 50)
+    assert hw.clicks[2][:2] == (900, 650)
+
+
+def test_touch_clamps_out_of_range():
+    assert clamp01(-3) == 0.0 and clamp01(9) == 1.0 and clamp01(0.3) == 0.3
+    hw = FakeHW()
+    make_backend(hw).touch(5.0, -1.0)
+    assert hw.clicks[0][:2] == (900, 50)  # clamped to (1.0, 0.0)
+
+
+def test_screenshot_downscaled():
+    hw = FakeHW()
+    img = make_backend(hw).screenshot()
+    assert img.width == 480  # 1600 -> capped at max_width
+
+
+def test_config_selects_n3ds_backend():
+    cfg = Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds", "PIXEL_FLIPPERS_VAULT": "/tmp/v_n3ds"})
+    assert cfg.backend == "n3ds"
+    assert cfg.game == "none"
+
+
+def test_n3ds_tool_surface(tmp_path):
+    import anyio
+
+    hw = FakeHW()
+    cfg = Config.from_env({
+        "PIXEL_FLIPPERS_BACKEND": "n3ds",
+        "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+        "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v"),
+    })
+    harness = Harness(cfg, make_backend(hw), Vault(cfg.vault_path))
+    tools = {t.name for t in anyio.run(build_server(harness).list_tools)}
+    assert {"press_buttons", "touch", "wait", "get_screenshot"} <= tools
+    # vision-only: no RAM or save states on the 3DS tier yet
+    assert not {"read_game_state", "read_memory", "save_state", "load_state", "move_stick", "freeze"} & tools
+
+    assert "Tapped" in harness.touch(0.5, 0.8, 120)
+    assert "Pressed: a up" in harness.press_buttons_ms(["a", "up"], 1, 1)

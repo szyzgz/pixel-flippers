@@ -13,7 +13,7 @@ from pathlib import Path
 TRUTHY = {"1", "true", "yes", "on"}
 
 
-BACKENDS = ("pyboy", "gba", "mock", "switch")
+BACKENDS = ("pyboy", "gba", "mock", "switch", "n3ds")
 
 
 @dataclass

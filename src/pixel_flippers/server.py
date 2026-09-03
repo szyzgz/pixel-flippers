@@ -59,6 +59,15 @@ class Harness:
         self._log(f"stick {stick} -> ({x}, {y}) for {duration_ms}ms")
         return f"Moved {stick} stick to ({x}, {y}) for {duration_ms}ms"
 
+    def touch(self, x: float, y: float, hold_ms: int) -> str:
+        self.emulator.touch(x, y, hold_ms)
+        self._log(f"touched ({x:.2f}, {y:.2f})")
+        return f"Tapped the touch screen at ({x:.2f}, {y:.2f}). Take a screenshot to see the result."
+
+    def wait_seconds(self, seconds: float) -> str:
+        self.emulator.advance(int(max(0.0, min(seconds, 60.0)) * 60))
+        return f"Waited {seconds:.1f}s (real time). Take a screenshot to see the current screen."
+
     # Pause buffering: HOME is a universal suspend on the Switch, which turns
     # any real-time game back into a turn-based one.
     def freeze(self) -> bytes:
@@ -231,6 +240,30 @@ def build_server(harness: Harness) -> MCPServer:
             the game wakes up, not after another think. Empty buttons = just resume."""
             return harness.resume(buttons, hold_ms, gap_ms, resume_delay_ms)
 
+    if "touch" in caps:  # 3DS (Azahar) — real-time, vision-only, has a stylus
+
+        @mcp.tool()
+        def press_buttons(buttons: list[str], hold_ms: int = 90, gap_ms: int = 90) -> str:
+            """Press 3DS buttons in sequence on the real Azahar emulator.
+
+            Buttons: a, b, x, y, l, r, zl, zr, start, select, home, and
+            up/down/left/right (these walk via the Circle Pad). For menu d-pad
+            use dup/ddown/dleft/dright. No RAM yet — screenshot to see results.
+            """
+            return harness.press_buttons_ms(buttons, hold_ms, gap_ms)
+
+        @mcp.tool()
+        def touch(x: float, y: float, hold_ms: int = 120) -> str:
+            """Tap the touch screen. x and y are fractions 0..1 of the screenshot
+            you see (x=0 left, 1 right; y=0 top, 1 bottom). Look at get_screenshot,
+            then aim. This is your stylus."""
+            return harness.touch(x, y, hold_ms)
+
+        @mcp.tool()
+        def wait(seconds: float = 1.0) -> str:
+            """Let the game run for N seconds of real time (cutscenes, animations)."""
+            return harness.wait_seconds(seconds)
+
     @mcp.tool()
     def get_screenshot() -> MCPImage:
         """Current screen as an image. Costs a lot of context — when RAM state is available, prefer read_game_state for plain facts."""
@@ -339,6 +372,11 @@ def main() -> None:
             config.bridge_host, config.bridge_port, config.capture_index,
         )
         emulator = SwitchBackend(config.bridge_host, config.bridge_port, capture_index=config.capture_index)
+    elif config.backend == "n3ds":
+        from .n3ds_backend import N3dsBackend
+
+        logger.info("3DS mode: driving Azahar (make sure it is running with a game loaded)")
+        emulator = N3dsBackend()
     else:
         logger.info("Booting %s (window=%s)", config.rom_path, config.window)
         emulator = PyBoyEmulator(config.rom_path, config.window, config.scale, config.speed)

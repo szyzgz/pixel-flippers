@@ -15,3 +15,11 @@ dist/
 build/
 .pytest_cache/
 .DS_Store
+
+# 3DS ROMs, emulator downloads, and local ROM/tool folders
+*.3ds
+*.cci
+*.cxi
+*.cia
+roms/
+tools/
