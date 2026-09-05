@@ -73,9 +73,12 @@ def test_press_sequence_sends_down_then_up_per_button():
 
 
 def test_movement_maps_to_circle_pad():
-    # up/down/left/right must be the Circle Pad keys (I/K/J/L), not the d-pad
-    assert (KEYCODES["up"], KEYCODES["down"], KEYCODES["left"], KEYCODES["right"]) == (34, 40, 38, 37)
-    assert KEYCODES["dup"] != KEYCODES["up"]
+    # Overworld movement = Circle Pad, which Azahar maps to the ARROW keys
+    # (macOS keycodes: left=123, right=124, down=125, up=126). NOT I/J/K/L
+    # (those are the C-stick / camera).
+    assert (KEYCODES["up"], KEYCODES["down"], KEYCODES["left"], KEYCODES["right"]) == (126, 125, 123, 124)
+    assert (KEYCODES["cup"], KEYCODES["cdown"], KEYCODES["cleft"], KEYCODES["cright"]) == (34, 40, 38, 37)
+    assert KEYCODES["dup"] != KEYCODES["up"]  # d-pad distinct from circle pad
 
 
 def test_touch_maps_normalized_to_window_pixels():
