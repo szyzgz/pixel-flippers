@@ -37,8 +37,10 @@ KEYCODES: dict[str, int] = {
     "a": 0, "b": 1, "x": 6, "y": 7,
     "l": 12, "r": 13, "zl": 18, "zr": 19,
     "start": 46, "select": 45, "home": 11,
-    "up": 34, "down": 40, "left": 38, "right": 37,      # circle pad I K J L
-    "dup": 17, "ddown": 5, "dleft": 3, "dright": 4,     # d-pad T G F H
+    # Overworld movement = Circle Pad, which Azahar maps to the ARROW keys.
+    "up": 126, "down": 125, "left": 123, "right": 124,  # circle pad = arrows
+    "dup": 17, "ddown": 5, "dleft": 3, "dright": 4,     # d-pad T G F H (menus)
+    "cup": 34, "cdown": 40, "cleft": 38, "cright": 37,  # C-stick I K J L (camera)
 }
 N3DS_BUTTONS = tuple(KEYCODES)
 
