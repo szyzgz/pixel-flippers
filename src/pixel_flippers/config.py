@@ -39,6 +39,7 @@ class Config:
     bridge_host: str  # switch backend: the Raspberry Pi running switch_bridge
     bridge_port: int
     capture_index: int  # switch backend: UVC capture card device index
+    slot: int  # n3ds backend: per-player Azahar save-state slot (1-10)
     transport: str = "stdio"  # "stdio" (Claude Desktop) or "http" (local service; use the `pf` CLI)
     port: int = 8765  # http transport port (binds 127.0.0.1 only)
     player: str = ""  # optional player name — shown in the spectator window title
@@ -92,6 +93,7 @@ class Config:
             bridge_host=env.get("PIXEL_FLIPPERS_BRIDGE_HOST", "raspberrypi.local"),
             bridge_port=int(env.get("PIXEL_FLIPPERS_BRIDGE_PORT", "3000")),
             capture_index=int(env.get("PIXEL_FLIPPERS_CAPTURE", "0")),
+            slot=int(env.get("PIXEL_FLIPPERS_SLOT", "1")),
             transport=env.get("PIXEL_FLIPPERS_TRANSPORT", "stdio").lower(),
             port=int(env.get("PIXEL_FLIPPERS_PORT", "8765")),
             player=env.get("PIXEL_FLIPPERS_PLAYER", ""),

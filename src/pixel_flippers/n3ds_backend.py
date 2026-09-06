@@ -33,14 +33,14 @@ from PIL import Image
 APP_NAME = "Azahar"          # for `open -a` and window matching
 PROC_MATCH = "azahar"        # CGWindowOwnerName substring
 
-# Azahar save-state hotkeys (from qt-config Shortcuts):
-#   Ctrl+C = "Save to Oldest Non-Quicksave Slot"; Ctrl+V = "Load from Newest".
-# We drive those, then copy the slot file out to a per-player file so Sol and
-# Mira keep independent states even though they share one Azahar.
+# Save states: the emulator window grabs keyboard for game input, so Qt menu
+# HOTKEYS never fire from synthetic keys. Instead we click Emulation > Save/Load
+# State > Slot N via AppleScript (reliable), giving each player their own slot
+# (Sol=1, Mira=2, ...). Azahar writes states/<title>.0N.cst; we also copy that
+# out to the player's saves folder for named, off-Azahar backups.
 import os as _os
 STATES_DIR = pathlib.Path(_os.path.expanduser(
     "~/Library/Application Support/Azahar/states"))
-_KEY_C, _KEY_V = 8, 9  # macOS virtual keycodes for C and V
 
 # 3DS button -> macOS virtual keycode. Movement (up/down/left/right) maps to
 # the Circle Pad (Azahar default I/K/J/L) because that's what walks in the
@@ -113,16 +113,32 @@ def _default_capturer() -> Image.Image:
     return img
 
 
-def _default_ctrl_key(keycode: int) -> None:
-    import Quartz
-
-    down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
-    Quartz.CGEventSetFlags(down, Quartz.kCGEventFlagMaskControl)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
-    time.sleep(0.03)
-    up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
-    Quartz.CGEventSetFlags(up, Quartz.kCGEventFlagMaskControl)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+def _default_menu_click(action: str, slot: int) -> None:
+    """Click Emulation > <action> > Slot N in Azahar's menu bar via AppleScript.
+    Needs Accessibility permission (same one game input uses)."""
+    # Escape first: a menu left open from a prior op breaks the AX reference.
+    subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 53'],
+                   capture_output=True)
+    subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 53'],
+                   capture_output=True)
+    time.sleep(0.2)
+    idx = 3 + slot  # submenu: 1=special, 2=Quick, 3=separator, 4=Slot 1, ...
+    script = (
+        'tell application "System Events" to tell process "azahar" to '
+        f'click menu item {idx} of menu 1 of menu item "{action}" '
+        'of menu "Emulation" of menu bar 1'
+    )
+    # -1728 "can't get menu item" happens when a menu is left open; Escape + retry.
+    last = None
+    for attempt in range(4):
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10, text=True)
+        if r.returncode == 0:
+            return
+        last = r.stderr.strip()
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 53'],
+                       capture_output=True)
+        time.sleep(0.4)
+    raise N3dsError(f"Azahar menu click failed after retries: {last}")
 
 
 def _default_clicker(abs_x: int, abs_y: int, hold_ms: int) -> None:
@@ -153,13 +169,15 @@ class N3dsBackend:
         clicker: Callable[[int, int, int], None] | None = None,
         bounds_fn: Callable[[], tuple[int, int, int, int, int]] | None = None,
         activator: Callable[[], None] | None = None,
-        ctrl_sender: Callable[[int], None] | None = None,
+        menu_click: Callable[[str, int], None] | None = None,
         states_dir: Path | None = None,
+        slot: int = 1,
         max_width: int = 480,
     ):
         self._send_key = key_sender or _default_key_sender
-        self._ctrl = ctrl_sender or _default_ctrl_key
+        self._menu = menu_click or _default_menu_click
         self._states_dir = Path(states_dir) if states_dir else STATES_DIR
+        self.slot = int(slot)
         self._capture = capturer or _default_capturer
         self._click = clicker or _default_clicker
         self._bounds = bounds_fn or _window_bounds
@@ -206,50 +224,59 @@ class N3dsBackend:
         bx, by, bw, bh, _ = self._bounds()
         self._click(int(bx + x * bw), int(by + y * bh), hold_ms)
 
-    def _newest_state_file(self):
-        if not self._states_dir.is_dir():
-            return None
-        files = [f for f in self._states_dir.rglob("*") if f.is_file()]
-        return max(files, key=lambda f: f.stat().st_mtime) if files else None
+    def _refocus_game(self) -> None:
+        """AppleScript menu ops steal the render widget's keyboard focus; click
+        the TOP screen (non-touch) to give it back so game input works again."""
+        try:
+            bx, by, bw, bh, _ = self._bounds()
+            self._click(int(bx + bw * 0.5), int(by + bh * 0.16), 40)
+        except Exception:
+            pass
+
+    def _slot_file(self):
+        """The Azahar slot file for THIS player's slot (states/<title>.0N.cst),
+        newest if several titles exist."""
+        matches = list(self._states_dir.glob(f"*.{self.slot:02d}.cst"))
+        return max(matches, key=lambda f: f.stat().st_mtime) if matches else None
 
     def save_state(self, path: Path) -> None:
-        """Trigger Azahar's save-state hotkey, then copy the slot file to `path`
-        (per-player), with a sidecar recording which slot file it came from."""
+        """Save to this player's Azahar slot, then copy the slot file to `path`."""
         path = Path(path)
-        before = self._newest_state_file()
-        before_mtime = before.stat().st_mtime if before else 0
         self._activate()
-        self._ctrl(_KEY_C)  # Ctrl+C = save to a slot
-        # wait for Azahar to write the slot file
-        newest = None
-        for _ in range(40):
+        time.sleep(0.3)
+        self._menu("Save State", self.slot)
+        slotfile = None
+        for _ in range(60):
             time.sleep(0.1)
-            newest = self._newest_state_file()
-            if newest and newest.stat().st_mtime > before_mtime:
+            f = self._slot_file()
+            if f and time.time() - f.stat().st_mtime < 8:
+                slotfile = f
                 break
-        if not newest or newest.stat().st_mtime <= before_mtime:
+        if not slotfile:
             raise N3dsError(
-                "No save-state file appeared — is Azahar focused with a game running? "
-                f"(watching {self._states_dir})")
+                "Save State produced no slot file — is Azahar running a game and "
+                f"is Accessibility granted? (watching {self._states_dir})")
         path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(newest, path)
-        rel = newest.relative_to(self._states_dir)
-        path.with_suffix(".slot.json").write_text(json.dumps({"rel": str(rel)}))
+        shutil.copy2(slotfile, path)
+        path.with_suffix(".slot.json").write_text(
+            json.dumps({"slotfile": slotfile.name, "slot": self.slot}))
+        self._refocus_game()
 
     def load_state(self, path: Path) -> None:
-        """Copy this player's saved state back into Azahar's slot, then load it."""
+        """Copy this player's saved file into their Azahar slot, then load it."""
         path = Path(path)
         sidecar = path.with_suffix(".slot.json")
         if not path.exists() or not sidecar.exists():
             raise N3dsError(f"No 3DS save state at {path}")
-        rel = json.loads(sidecar.read_text())["rel"]
-        dest = self._states_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, dest)
-        _os.utime(dest, None)  # make it the NEWEST slot so Ctrl+V picks it
+        meta = json.loads(sidecar.read_text())
+        slot = int(meta.get("slot", self.slot))
+        self._states_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, self._states_dir / meta["slotfile"])
         self._activate()
-        self._ctrl(_KEY_V)  # Ctrl+V = load newest slot
-        time.sleep(1.0)
+        time.sleep(0.3)
+        self._menu("Load State", slot)
+        time.sleep(1.2)
+        self._refocus_game()
 
     def advance(self, frames: int) -> None:
         # Real-time: there is no frame stepping. Approximate "frames" as time.

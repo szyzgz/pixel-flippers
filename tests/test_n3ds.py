@@ -171,39 +171,39 @@ def test_read_last_session_does_not_summon(tmp_path):
 
 
 def test_save_and_load_state(tmp_path):
-    """Simulate Azahar's Ctrl+C writing a slot file; verify per-player copy-out
-    and copy-back-then-load."""
-    from pixel_flippers.n3ds_backend import N3dsBackend, _KEY_C, _KEY_V
+    """Simulate Azahar's menu Save/Load writing a slot file; verify per-player
+    copy-out and copy-back-then-load, keyed by the player's slot."""
+    from pixel_flippers.n3ds_backend import N3dsBackend
 
     states = tmp_path / "azahar_states"
     states.mkdir()
     events = {"loaded": 0}
+    TITLE = "00040000001B5000"
 
-    def fake_ctrl(keycode):
-        if keycode == _KEY_C:
-            # Azahar "saves" to a slot file
-            slot = states / "00040000001B5000" / "0.astate"
-            slot.parent.mkdir(parents=True, exist_ok=True)
-            slot.write_bytes(b"SAVESTATE-DATA-v1")
-        elif keycode == _KEY_V:
+    def fake_menu(action, slot):
+        f = states / f"{TITLE}.{slot:02d}.cst"
+        if action == "Save State":
+            f.write_bytes(b"SAVESTATE-DATA-v1")
+        elif action == "Load State":
             events["loaded"] += 1
+            assert f.read_bytes() == b"SAVESTATE-DATA-v1"
 
     hw = FakeHW()
     b = N3dsBackend(
         key_sender=hw.key, capturer=hw.capture, clicker=hw.click,
         bounds_fn=hw.bounds, activator=hw.activate,
-        ctrl_sender=fake_ctrl, states_dir=states,
+        menu_click=fake_menu, states_dir=states, slot=2,  # Mira-style slot
     )
 
-    dest = tmp_path / "saves" / "sol" / "outside.state"
+    dest = tmp_path / "saves" / "mira" / "outside.state"
     b.save_state(dest)
     assert dest.read_bytes() == b"SAVESTATE-DATA-v1"
-    assert dest.with_suffix(".slot.json").exists()
+    meta = dest.with_suffix(".slot.json")
+    assert meta.exists() and '"slot": 2' in meta.read_text()
 
-    # wipe the emulator slot, then load our file back and confirm Ctrl+V fired
-    (states / "00040000001B5000" / "0.astate").unlink()
-    b.load_state(dest)
-    assert (states / "00040000001B5000" / "0.astate").read_bytes() == b"SAVESTATE-DATA-v1"
+    (states / f"{TITLE}.02.cst").unlink()      # wipe emulator slot
+    b.load_state(dest)                          # copies back + clicks Load Slot 2
+    assert (states / f"{TITLE}.02.cst").read_bytes() == b"SAVESTATE-DATA-v1"
     assert events["loaded"] == 1
 
 
@@ -213,11 +213,11 @@ def test_save_state_errors_without_azahar(tmp_path):
     b = N3dsBackend(
         key_sender=hw.key, capturer=hw.capture, clicker=hw.click,
         bounds_fn=hw.bounds, activator=hw.activate,
-        ctrl_sender=lambda k: None,  # no slot file ever appears
+        menu_click=lambda a, sl: None,  # no slot file ever appears
         states_dir=tmp_path / "empty_states",
     )
     import pytest
-    with pytest.raises(N3dsError, match="No save-state file"):
+    with pytest.raises(N3dsError, match="no slot file"):
         b.save_state(tmp_path / "x.state")
 
 

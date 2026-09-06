@@ -32,8 +32,8 @@ shinies — worth noting when you can read them.
 
 ## Save states (IMPORTANT — the 3DS tier now has them)
 Azahar save states work via `save_state` / `load_state` / `list_states` — the
-backend drives Azahar's Ctrl+C / Ctrl+V hotkeys and copies the slot file into
-YOUR saves folder, so Sol and Mira keep independent states even sharing one
+backend drives Azahar's Emulation > Save/Load State menu (per-player slot) and copies
+the slot file into YOUR saves folder, so Sol and Mira keep independent states even sharing one
 Azahar. **Save a state before you pause or hand the window to another player**
 (only one Claude can drive Azahar's foreground at a time). Resume with
 load_state. This is separate from in-game saving — do both when you can.
