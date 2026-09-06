@@ -22,7 +22,7 @@ BACKEND_CAPABILITIES = {
     "mock": {"buttons", "frames", "screenshot", "memory", "savestates"},
     "gba": {"buttons", "frames", "screenshot", "savestates"},
     "switch": {"buttons", "stick", "screenshot"},
-    "n3ds": {"buttons", "touch", "screenshot"},
+    "n3ds": {"buttons", "touch", "screenshot", "savestates"},
 }
 
 

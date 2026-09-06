@@ -19,6 +19,9 @@ logic is testable without a Mac or a running emulator.
 
 from __future__ import annotations
 
+import json
+import pathlib
+import shutil
 import subprocess
 import tempfile
 import time
@@ -29,6 +32,15 @@ from PIL import Image
 
 APP_NAME = "Azahar"          # for `open -a` and window matching
 PROC_MATCH = "azahar"        # CGWindowOwnerName substring
+
+# Azahar save-state hotkeys (from qt-config Shortcuts):
+#   Ctrl+C = "Save to Oldest Non-Quicksave Slot"; Ctrl+V = "Load from Newest".
+# We drive those, then copy the slot file out to a per-player file so Sol and
+# Mira keep independent states even though they share one Azahar.
+import os as _os
+STATES_DIR = pathlib.Path(_os.path.expanduser(
+    "~/Library/Application Support/Azahar/states"))
+_KEY_C, _KEY_V = 8, 9  # macOS virtual keycodes for C and V
 
 # 3DS button -> macOS virtual keycode. Movement (up/down/left/right) maps to
 # the Circle Pad (Azahar default I/K/J/L) because that's what walks in the
@@ -101,6 +113,18 @@ def _default_capturer() -> Image.Image:
     return img
 
 
+def _default_ctrl_key(keycode: int) -> None:
+    import Quartz
+
+    down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+    Quartz.CGEventSetFlags(down, Quartz.kCGEventFlagMaskControl)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+    time.sleep(0.03)
+    up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
+    Quartz.CGEventSetFlags(up, Quartz.kCGEventFlagMaskControl)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+
+
 def _default_clicker(abs_x: int, abs_y: int, hold_ms: int) -> None:
     import Quartz
 
@@ -118,7 +142,7 @@ def _default_clicker(abs_x: int, abs_y: int, hold_ms: int) -> None:
 
 
 class N3dsBackend:
-    capabilities = {"buttons", "touch", "screenshot"}
+    capabilities = {"buttons", "touch", "screenshot", "savestates"}
 
     def __init__(
         self,
@@ -129,9 +153,13 @@ class N3dsBackend:
         clicker: Callable[[int, int, int], None] | None = None,
         bounds_fn: Callable[[], tuple[int, int, int, int, int]] | None = None,
         activator: Callable[[], None] | None = None,
+        ctrl_sender: Callable[[int], None] | None = None,
+        states_dir: Path | None = None,
         max_width: int = 480,
     ):
         self._send_key = key_sender or _default_key_sender
+        self._ctrl = ctrl_sender or _default_ctrl_key
+        self._states_dir = Path(states_dir) if states_dir else STATES_DIR
         self._capture = capturer or _default_capturer
         self._click = clicker or _default_clicker
         self._bounds = bounds_fn or _window_bounds
@@ -177,6 +205,51 @@ class N3dsBackend:
         self._activate()
         bx, by, bw, bh, _ = self._bounds()
         self._click(int(bx + x * bw), int(by + y * bh), hold_ms)
+
+    def _newest_state_file(self):
+        if not self._states_dir.is_dir():
+            return None
+        files = [f for f in self._states_dir.rglob("*") if f.is_file()]
+        return max(files, key=lambda f: f.stat().st_mtime) if files else None
+
+    def save_state(self, path: Path) -> None:
+        """Trigger Azahar's save-state hotkey, then copy the slot file to `path`
+        (per-player), with a sidecar recording which slot file it came from."""
+        path = Path(path)
+        before = self._newest_state_file()
+        before_mtime = before.stat().st_mtime if before else 0
+        self._activate()
+        self._ctrl(_KEY_C)  # Ctrl+C = save to a slot
+        # wait for Azahar to write the slot file
+        newest = None
+        for _ in range(40):
+            time.sleep(0.1)
+            newest = self._newest_state_file()
+            if newest and newest.stat().st_mtime > before_mtime:
+                break
+        if not newest or newest.stat().st_mtime <= before_mtime:
+            raise N3dsError(
+                "No save-state file appeared — is Azahar focused with a game running? "
+                f"(watching {self._states_dir})")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(newest, path)
+        rel = newest.relative_to(self._states_dir)
+        path.with_suffix(".slot.json").write_text(json.dumps({"rel": str(rel)}))
+
+    def load_state(self, path: Path) -> None:
+        """Copy this player's saved state back into Azahar's slot, then load it."""
+        path = Path(path)
+        sidecar = path.with_suffix(".slot.json")
+        if not path.exists() or not sidecar.exists():
+            raise N3dsError(f"No 3DS save state at {path}")
+        rel = json.loads(sidecar.read_text())["rel"]
+        dest = self._states_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dest)
+        _os.utime(dest, None)  # make it the NEWEST slot so Ctrl+V picks it
+        self._activate()
+        self._ctrl(_KEY_V)  # Ctrl+V = load newest slot
+        time.sleep(1.0)
 
     def advance(self, frames: int) -> None:
         # Real-time: there is no frame stepping. Approximate "frames" as time.

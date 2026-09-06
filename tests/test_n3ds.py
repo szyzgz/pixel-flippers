@@ -124,7 +124,8 @@ def test_n3ds_tool_surface(tmp_path):
     tools = {t.name for t in anyio.run(build_server(harness).list_tools)}
     assert {"press_buttons", "touch", "wait", "get_screenshot"} <= tools
     # vision-only: no RAM or save states on the 3DS tier yet
-    assert not {"read_game_state", "read_memory", "save_state", "load_state", "move_stick", "freeze"} & tools
+    assert {"save_state", "load_state"} <= tools  # 3DS now HAS save states
+    assert not {"read_game_state", "read_memory", "move_stick", "freeze"} & tools
 
     assert "Tapped" in harness.touch(0.5, 0.8, 120)
     assert "Pressed: a up" in harness.press_buttons_ms(["a", "up"], 1, 1)
@@ -167,3 +168,67 @@ def test_read_last_session_does_not_summon(tmp_path):
     h = Harness(cfg, vault=Vault(cfg.vault_path), emulator_factory=lambda c: make_backend(FakeHW()))
     h.read_last_session()          # must not open a window
     assert not h.is_running
+
+
+def test_save_and_load_state(tmp_path):
+    """Simulate Azahar's Ctrl+C writing a slot file; verify per-player copy-out
+    and copy-back-then-load."""
+    from pixel_flippers.n3ds_backend import N3dsBackend, _KEY_C, _KEY_V
+
+    states = tmp_path / "azahar_states"
+    states.mkdir()
+    events = {"loaded": 0}
+
+    def fake_ctrl(keycode):
+        if keycode == _KEY_C:
+            # Azahar "saves" to a slot file
+            slot = states / "00040000001B5000" / "0.astate"
+            slot.parent.mkdir(parents=True, exist_ok=True)
+            slot.write_bytes(b"SAVESTATE-DATA-v1")
+        elif keycode == _KEY_V:
+            events["loaded"] += 1
+
+    hw = FakeHW()
+    b = N3dsBackend(
+        key_sender=hw.key, capturer=hw.capture, clicker=hw.click,
+        bounds_fn=hw.bounds, activator=hw.activate,
+        ctrl_sender=fake_ctrl, states_dir=states,
+    )
+
+    dest = tmp_path / "saves" / "sol" / "outside.state"
+    b.save_state(dest)
+    assert dest.read_bytes() == b"SAVESTATE-DATA-v1"
+    assert dest.with_suffix(".slot.json").exists()
+
+    # wipe the emulator slot, then load our file back and confirm Ctrl+V fired
+    (states / "00040000001B5000" / "0.astate").unlink()
+    b.load_state(dest)
+    assert (states / "00040000001B5000" / "0.astate").read_bytes() == b"SAVESTATE-DATA-v1"
+    assert events["loaded"] == 1
+
+
+def test_save_state_errors_without_azahar(tmp_path):
+    from pixel_flippers.n3ds_backend import N3dsBackend, N3dsError
+    hw = FakeHW()
+    b = N3dsBackend(
+        key_sender=hw.key, capturer=hw.capture, clicker=hw.click,
+        bounds_fn=hw.bounds, activator=hw.activate,
+        ctrl_sender=lambda k: None,  # no slot file ever appears
+        states_dir=tmp_path / "empty_states",
+    )
+    import pytest
+    with pytest.raises(N3dsError, match="No save-state file"):
+        b.save_state(tmp_path / "x.state")
+
+
+def test_savestates_now_in_tool_surface(tmp_path):
+    import anyio
+    hw = FakeHW()
+    cfg = Config.from_env({
+        "PIXEL_FLIPPERS_BACKEND": "n3ds",
+        "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+        "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v"),
+    })
+    harness = Harness(cfg, make_backend(hw), Vault(cfg.vault_path))
+    tools = {t.name for t in anyio.run(build_server(harness).list_tools)}
+    assert {"save_state", "load_state", "list_states"} <= tools
