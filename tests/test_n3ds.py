@@ -232,3 +232,74 @@ def test_savestates_now_in_tool_surface(tmp_path):
     harness = Harness(cfg, make_backend(hw), Vault(cfg.vault_path))
     tools = {t.name for t in anyio.run(build_server(harness).list_tools)}
     assert {"save_state", "load_state", "list_states"} <= tools
+
+
+class ScriptedEmu:
+    """Fake emulator whose screenshot follows a scripted list of frames, so we
+    can test walk()'s moved/blocked/transition classification."""
+    capabilities = {"buttons", "touch", "screenshot"}
+    def __init__(self, frames):
+        self.frames = frames; self.i = 0; self.presses = []
+    def press_buttons(self, buttons, hold_ms=0, gap_ms=0):
+        self.presses.append(buttons[0]); self.i = min(self.i + 1, len(self.frames) - 1)
+    def screenshot(self):
+        return self.frames[self.i]
+
+
+def _img(color):
+    from PIL import Image
+    return Image.new("RGB", (240, 160), color)
+
+
+def _walk_harness(frames, tmp_path):
+    from pixel_flippers.config import Config
+    from pixel_flippers.server import Harness
+    from pixel_flippers.vault import Vault
+    cfg = Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds",
+                           "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+                           "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v")})
+    return Harness(cfg, ScriptedEmu(frames), Vault(cfg.vault_path))
+
+
+def test_walk_reports_free_movement(tmp_path):
+    frames = [_img((10, 20, 30)), _img((200, 50, 50)), _img((50, 200, 50)), _img((50, 50, 200))]
+    h = _walk_harness(frames, tmp_path)
+    msg = h.walk("down", tiles=3)
+    assert "3 step" in msg and "moving freely" in msg
+
+
+def test_walk_detects_blocked(tmp_path):
+    # moves once (A->B), then B->B is no change = blocked
+    frames = [_img((10, 20, 30)), _img((200, 50, 50)), _img((200, 50, 50))]
+    h = _walk_harness(frames, tmp_path)
+    msg = h.walk("right", tiles=5)
+    assert "1 step" in msg and ("wall" in msg or "can't go further" in msg)
+
+
+def test_walk_detects_transition(tmp_path):
+    # moves once, then a near-black frame = door/cutscene
+    frames = [_img((120, 120, 120)), _img((200, 50, 50)), _img((2, 2, 2))]
+    h = _walk_harness(frames, tmp_path)
+    msg = h.walk("up", tiles=5)
+    assert "screen changed" in msg
+
+
+def test_walk_rejects_bad_direction(tmp_path):
+    import pytest
+    h = _walk_harness([_img((0, 0, 0))], tmp_path)
+    with pytest.raises(ValueError):
+        h.walk("north")
+
+
+def test_walk_tool_registered(tmp_path):
+    import anyio
+    from pixel_flippers.config import Config
+    from pixel_flippers.server import Harness, build_server
+    from pixel_flippers.vault import Vault
+    hw = FakeHW()
+    cfg = Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds",
+                           "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+                           "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v")})
+    h = Harness(cfg, make_backend(hw), Vault(cfg.vault_path))
+    tools = {t.name for t in anyio.run(build_server(h).list_tools)}
+    assert "walk" in tools

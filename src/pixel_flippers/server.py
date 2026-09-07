@@ -118,6 +118,43 @@ class Harness:
         self.emulator.advance(int(max(0.0, min(seconds, 60.0)) * 60))
         return f"Waited {seconds:.1f}s (real time). Take a screenshot to see the current screen."
 
+    def walk(self, direction: str, tiles: int = 1, step_ms: int = 260) -> str:
+        """Move step-by-step and REPORT what happened (moved / blocked / scene
+        changed), so navigation is feedback-driven instead of guesswork."""
+        from PIL import ImageChops, ImageStat
+
+        direction = direction.strip().lower()
+        if direction not in ("up", "down", "left", "right"):
+            raise ValueError("direction must be up, down, left, or right")
+
+        def snap():
+            return self.emulator.screenshot().convert("RGB")
+
+        def diff(a, c):
+            return sum(ImageStat.Stat(ImageChops.difference(a, c)).mean[:3]) / 3
+
+        def brightness(im):
+            return sum(ImageStat.Stat(im).mean[:3]) / 3
+
+        moved = 0
+        prev = snap()
+        for _ in range(max(1, min(tiles, 30))):
+            self.emulator.press_buttons([direction], step_ms, 90)
+            cur = snap()
+            d, b = diff(prev, cur), brightness(cur)
+            if b < 12:  # near-black = a transition (door, stairs, cutscene)
+                self._log(f"walk {direction}: scene change after {moved + 1}")
+                return (f"Walked {direction} {moved + 1} step(s), then the screen changed "
+                        "— likely a door, stairs, or a cutscene. Screenshot to see where you are.")
+            if d < 2.5:  # essentially no change = blocked
+                self._log(f"walk {direction}: blocked after {moved}")
+                return (f"Walked {direction} {moved} step(s), then hit a wall/object — "
+                        f"you can't go further {direction}. Try another direction.")
+            moved += 1
+            prev = cur
+        self._log(f"walk {direction} x{moved}")
+        return f"Walked {direction} {moved} step(s), still moving freely. Screenshot to see the new spot."
+
     # Pause buffering: HOME is a universal suspend on the Switch, which turns
     # any real-time game back into a turn-based one.
     def freeze(self) -> bytes:
@@ -325,6 +362,15 @@ def build_server(harness: Harness) -> MCPServer:
         def wait(seconds: float = 1.0) -> str:
             """Let the game run for N seconds of real time (cutscenes, animations)."""
             return harness.wait_seconds(seconds)
+
+        @mcp.tool()
+        def walk(direction: str, tiles: int = 3, step_ms: int = 260) -> str:
+            """Explore by moving step-by-step (up/down/left/right = Circle Pad),
+            stopping early if you hit a wall or the screen changes (door/stairs/
+            cutscene), and REPORTING what happened. Use this instead of raw
+            presses so you don't overshoot or bump blindly — it tells you if you
+            moved, got blocked, or triggered a transition."""
+            return harness.walk(direction, tiles, step_ms)
 
     @mcp.tool()
     def get_screenshot() -> MCPImage:
