@@ -72,7 +72,7 @@ def test_screenshot_and_notes(http_server):
     png = tmp / "shot.png"
     out = _pf(url, "screenshot", str(png))
     assert out.returncode == 0, out.stderr
-    assert png.read_bytes()[:4] == b"\x89PNG"
+    assert png.read_bytes()[:3] == b"\xff\xd8\xff"  # JPEG now
     assert _pf(url, "call", "write_note", '{"title": "Status", "content": "hi"}').returncode == 0
     out = _pf(url, "call", "read_note", '{"title": "Status"}')
     assert "hi" in out.stdout

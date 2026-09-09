@@ -102,7 +102,7 @@ def test_gba_harness_tool_surface(rom, backend, tmp_path):
 
     result = harness.press_buttons(["a"], 2, 2)
     assert "Pressed: a" in result
-    assert harness.screenshot().startswith(b"\x89PNG")
+    assert harness.screenshot().startswith(b"\xff\xd8")
     assert "Saved" in harness.save_state("gba-test")
 
 

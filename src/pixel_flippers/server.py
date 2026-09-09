@@ -178,10 +178,16 @@ class Harness:
         return f"Waited {frames} frames.\nNow: {self._brief()}"
 
     def screenshot(self) -> bytes:
-        img = self.emulator.screenshot()
-        img = img.resize((img.width * 2, img.height * 2))
+        # JPEG, not PNG, and NO upscale: game frames are photographic, so PNG is
+        # ~7x bigger, and the old x2 upscale 4x'd the bytes for zero extra detail.
+        # This matters because Claude Desktop keeps every screenshot in the chat;
+        # fat PNGs pile up and jam the conversation after a few turns of play.
+        img = self.emulator.screenshot().convert("RGB")
+        max_w = int(self.config.shot_width)
+        if img.width > max_w:
+            img = img.resize((max_w, round(img.height * max_w / img.width)))
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
+        img.save(buf, format="JPEG", quality=int(self.config.shot_quality), optimize=True)
         return buf.getvalue()
 
     def game_state(self) -> str:
@@ -330,7 +336,7 @@ def build_server(harness: Harness) -> MCPServer:
             image and plan for as long as you like; real-time games can't rush you
             while frozen. Resume with the `resume` tool. (Does not work in online
             play — which you don't do anyway.)"""
-            return MCPImage(data=harness.freeze(), format="png")
+            return MCPImage(data=harness.freeze(), format="jpeg")
 
         @mcp.tool()
         def resume(buttons: list[str] | None = None, hold_ms: int = 100, gap_ms: int = 80, resume_delay_ms: int = 800) -> str:
@@ -375,7 +381,7 @@ def build_server(harness: Harness) -> MCPServer:
     @mcp.tool()
     def get_screenshot() -> MCPImage:
         """Current screen as an image. Costs a lot of context — when RAM state is available, prefer read_game_state for plain facts."""
-        return MCPImage(data=harness.screenshot(), format="png")
+        return MCPImage(data=harness.screenshot(), format="jpeg")
 
     if "memory" in caps:
 

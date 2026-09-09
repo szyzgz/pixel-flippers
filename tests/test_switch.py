@@ -123,7 +123,7 @@ def recording_setup(tmp_path):
 def test_freeze_screenshots_then_presses_home(recording_setup):
     harness, controller = recording_setup
     png = harness.freeze()
-    assert png.startswith(b"\x89PNG")
+    assert png.startswith(b"\xff\xd8")
     assert len(controller.macros) == 1 and "HOME" in controller.macros[0]
 
 

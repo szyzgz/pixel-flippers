@@ -40,7 +40,7 @@ def test_actions_are_auto_logged(harness):
 
 def test_screenshot_is_png(harness):
     data = harness.screenshot()
-    assert data.startswith(b"\x89PNG")
+    assert data.startswith(b"\xff\xd8")
 
 
 def test_game_state_report(harness):

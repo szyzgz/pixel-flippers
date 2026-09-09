@@ -40,6 +40,8 @@ class Config:
     bridge_port: int
     capture_index: int  # switch backend: UVC capture card device index
     slot: int  # n3ds backend: per-player Azahar save-state slot (1-10)
+    shot_width: int   # max screenshot width (px) sent to the model
+    shot_quality: int  # JPEG quality for screenshots (Desktop keeps them all — keep small)
     transport: str = "stdio"  # "stdio" (Claude Desktop) or "http" (local service; use the `pf` CLI)
     port: int = 8765  # http transport port (binds 127.0.0.1 only)
     player: str = ""  # optional player name — shown in the spectator window title
@@ -94,6 +96,8 @@ class Config:
             bridge_port=int(env.get("PIXEL_FLIPPERS_BRIDGE_PORT", "3000")),
             capture_index=int(env.get("PIXEL_FLIPPERS_CAPTURE", "0")),
             slot=int(env.get("PIXEL_FLIPPERS_SLOT", "1")),
+            shot_width=int(env.get("PIXEL_FLIPPERS_SHOT_WIDTH", "480")),
+            shot_quality=int(env.get("PIXEL_FLIPPERS_SHOT_QUALITY", "72")),
             transport=env.get("PIXEL_FLIPPERS_TRANSPORT", "stdio").lower(),
             port=int(env.get("PIXEL_FLIPPERS_PORT", "8765")),
             player=env.get("PIXEL_FLIPPERS_PLAYER", ""),
