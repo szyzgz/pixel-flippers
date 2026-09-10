@@ -10,8 +10,9 @@ and we puppet it from outside, three ways:
   0..1 over the captured image, so the player picks coordinates from the same
   screenshot it sees — no screen-layout math to calibrate.
 
-Vision-only for now (no RAM). Azahar's RPC server can add memory reads later;
-this backend declares no "memory" capability, so those tools stay hidden.
+Position: Azahar's RPC server (UDP) lets us read the emulated RAM, so this
+backend can report the player's live world coordinates (the "position"
+capability). It still declares no "memory" cap — there's no full RAM decoder.
 
 Hardware calls (Quartz, screencapture, activation) are injected so the pure
 logic is testable without a Mac or a running emulator.
@@ -20,8 +21,10 @@ logic is testable without a Mac or a running emulator.
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import shutil
+import struct
 import subprocess
 import tempfile
 import time
@@ -41,6 +44,11 @@ PROC_MATCH = "azahar"        # CGWindowOwnerName substring
 import os as _os
 STATES_DIR = pathlib.Path(_os.path.expanduser(
     "~/Library/Application Support/Azahar/states"))
+
+# Ultra Sun live player position: three little-endian float32 (X, Y-height, Z)
+# in the 0x30000000 region, found by differential scan (see docs/3ds-memory.md).
+# Env-overridable for other games / if the allocation moves.
+POS_ADDR = int(_os.environ.get("PIXEL_FLIPPERS_POS_ADDR", "0x300068C4"), 16)
 
 # 3DS button -> macOS virtual keycode. Movement (up/down/left/right) maps to
 # the Circle Pad (Azahar default I/K/J/L) because that's what walks in the
@@ -158,7 +166,7 @@ def _default_clicker(abs_x: int, abs_y: int, hold_ms: int) -> None:
 
 
 class N3dsBackend:
-    capabilities = {"buttons", "touch", "screenshot", "savestates"}
+    capabilities = {"buttons", "touch", "screenshot", "savestates", "position"}
 
     def __init__(
         self,
@@ -173,6 +181,8 @@ class N3dsBackend:
         states_dir: Path | None = None,
         slot: int = 1,
         max_width: int = 480,
+        mem_reader: Callable[[int, int], bytes] | None = None,
+        pos_addr: int | None = None,
     ):
         self._send_key = key_sender or _default_key_sender
         self._menu = menu_click or _default_menu_click
@@ -183,6 +193,9 @@ class N3dsBackend:
         self._bounds = bounds_fn or _window_bounds
         self._activate = activator or _activate_app
         self._max_width = max_width
+        self._mem_reader = mem_reader
+        self._rpc = None
+        self._pos_addr = POS_ADDR if pos_addr is None else int(pos_addr)
         self.player = player
         self._rom = Path(rom_path) if rom_path else None
         # Summon: if a ROM is configured, open Azahar on it (unless already up).
@@ -288,6 +301,33 @@ class N3dsBackend:
             scale = self._max_width / img.width
             img = img.resize((self._max_width, int(img.height * scale)))
         return img
+
+    def _read_mem(self, address: int, size: int) -> bytes:
+        """Read `size` bytes of emulated RAM at `address` (Azahar RPC by default,
+        or an injected reader in tests)."""
+        if self._mem_reader is not None:
+            return self._mem_reader(address, size)
+        if self._rpc is None:
+            from .azahar_rpc import AzaharRPC
+            self._rpc = AzaharRPC()
+        return self._rpc.read_memory(address, size)
+
+    def read_position(self) -> dict:
+        """Live world position as {"x","y","z"} float32, read from RAM via RPC.
+
+        Found empirically for Ultra Sun (see docs/3ds-memory.md). The map grid
+        is rotated ~45deg vs the screen, so treat (x, z) as a 2-D world point,
+        not one-axis-per-screen-direction. A NaN/huge value means the address
+        shifted (e.g. after a map change) and needs re-locating."""
+        data = self._read_mem(self._pos_addr, 12)
+        if len(data) < 12:
+            raise N3dsError("short position read — is Azahar's RPC server enabled?")
+        x, y, z = struct.unpack("<3f", data[:12])
+        if not all(math.isfinite(v) for v in (x, y, z)) or max(abs(x), abs(z)) > 1e7:
+            raise N3dsError(
+                "position read looks invalid — the address likely shifted after a "
+                "map change; re-run the scan (docs/3ds-memory.md) to relocate it")
+        return {"x": x, "y": y, "z": z}
 
     def close(self) -> None:
         pass

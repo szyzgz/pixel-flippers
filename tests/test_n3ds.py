@@ -303,3 +303,89 @@ def test_walk_tool_registered(tmp_path):
     h = Harness(cfg, make_backend(hw), Vault(cfg.vault_path))
     tools = {t.name for t in anyio.run(build_server(h).list_tools)}
     assert "walk" in tools
+
+
+# --- live position (Azahar RPC) --------------------------------------------
+import struct as _struct
+import math as _math
+from pixel_flippers.config import Config as _Config
+
+
+def _packf(x, y, z):
+    return _struct.pack("<3f", x, y, z)
+
+
+def test_position_capability_declared():
+    assert "position" in N3dsBackend.capabilities
+
+
+def test_read_position_decodes_xyz_floats():
+    seen = {}
+
+    def fake_mem(addr, size):
+        seen["addr"], seen["size"] = addr, size
+        return _packf(25172.5, -116.5, 15223.5)
+
+    b = N3dsBackend(mem_reader=fake_mem, pos_addr=0x300068C4)
+    pos = b.read_position()
+    assert seen == {"addr": 0x300068C4, "size": 12}
+    assert round(pos["x"], 1) == 25172.5
+    assert round(pos["y"], 1) == -116.5
+    assert round(pos["z"], 1) == 15223.5
+
+
+def test_read_position_rejects_garbage():
+    b = N3dsBackend(mem_reader=lambda a, s: _packf(_math.nan, 0.0, 0.0))
+    with pytest.raises(N3dsError, match="invalid"):
+        b.read_position()
+    b2 = N3dsBackend(mem_reader=lambda a, s: _packf(1e12, 0.0, 0.0))
+    with pytest.raises(N3dsError, match="invalid"):
+        b2.read_position()
+
+
+def test_read_position_short_read():
+    b = N3dsBackend(mem_reader=lambda a, s: b"\x00\x00")
+    with pytest.raises(N3dsError, match="short position read"):
+        b.read_position()
+
+
+class _PosEmu:
+    """Minimal emulator serving a queue of positions for harness tests."""
+    capabilities = {"position"}
+
+    def __init__(self, positions):
+        self._q = list(positions)
+
+    def read_position(self):
+        return self._q.pop(0)
+
+
+def _pos_harness(tmp_path, positions):
+    config = Config.from_env({
+        "PIXEL_FLIPPERS_BACKEND": "n3ds",
+        "PIXEL_FLIPPERS_SAVES": str(tmp_path / "s"),
+        "PIXEL_FLIPPERS_VAULT": str(tmp_path / "v"),
+    })
+    return Harness(config, _PosEmu(positions), Vault(config.vault_path))
+
+
+def test_harness_position_reports_screen_relative_move(tmp_path):
+    # dx=+10, dz=+10 -> pure south (~14), zero east (grid rotated 45deg)
+    h = _pos_harness(tmp_path, [
+        {"x": 100.0, "y": 0.0, "z": 100.0},
+        {"x": 110.0, "y": 0.0, "z": 110.0},
+    ])
+    first = h.read_position()
+    assert "X=100.0" in first and "since last read" not in first
+    second = h.read_position()
+    assert "~14 south" in second
+    assert "east" not in second and "west" not in second
+
+
+def test_harness_position_detects_no_movement(tmp_path):
+    h = _pos_harness(tmp_path, [
+        {"x": 100.0, "y": 0.0, "z": 100.0},
+        {"x": 100.8, "y": 0.0, "z": 100.6},  # idle drift < 3 units
+    ])
+    h.read_position()
+    assert "didn't move" in h.read_position()

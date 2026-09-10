@@ -195,6 +195,34 @@ class Harness:
             return "RAM decoding is disabled (PIXEL_FLIPPERS_GAME=none). Use get_screenshot."
         return self.decoder.describe(self.emulator.read_memory)
 
+    def read_position(self) -> str:
+        """Live player world position (3DS via Azahar RPC), with a screen-relative
+        movement note vs the previous call. Cheap: no image, just facts."""
+        import math
+
+        pos = self.emulator.read_position()
+        x, y, z = pos["x"], pos["y"], pos["z"]
+        out = f"Position: X={x:.1f}  Z={z:.1f}  (height {y:.1f})"
+        last = getattr(self, "_last_pos", None)
+        self._last_pos = (x, z)
+        if last is not None:
+            dx, dz = x - last[0], z - last[1]
+            if math.hypot(dx, dz) < 3.0:
+                out += ("\nUnchanged since last read — you didn't move (blocked, "
+                        "or you only turned to face a new direction).")
+            else:
+                # Map grid is rotated ~45deg: east=(+X,-Z), south=(+X,+Z).
+                east = (dx - dz) / 1.4142135624
+                south = (dx + dz) / 1.4142135624
+                parts = []
+                if south > 3: parts.append(f"~{south:.0f} south")
+                elif south < -3: parts.append(f"~{-south:.0f} north")
+                if east > 3: parts.append(f"~{east:.0f} east")
+                elif east < -3: parts.append(f"~{-east:.0f} west")
+                moved = " and ".join(parts) if parts else f"~{math.hypot(dx, dz):.0f} units"
+                out += f"\nMoved {moved} since last read (screen-relative)."
+        return out
+
     def read_memory(self, address: str, length: int) -> str:
         addr = int(address, 16)
         if not 0 <= addr <= 0xFFFF or not 1 <= length <= 256 or addr + length > 0x10000:
@@ -353,7 +381,8 @@ def build_server(harness: Harness) -> MCPServer:
 
             Buttons: a, b, x, y, l, r, zl, zr, start, select, home, and
             up/down/left/right (these walk via the Circle Pad). For menu d-pad
-            use dup/ddown/dleft/dright. No RAM yet — screenshot to see results.
+            use dup/ddown/dleft/dright. After moving, call read_position to
+            confirm you actually moved (cheaper than a screenshot).
             """
             return harness.press_buttons_ms(buttons, hold_ms, gap_ms)
 
@@ -377,6 +406,17 @@ def build_server(harness: Harness) -> MCPServer:
             presses so you don't overshoot or bump blindly — it tells you if you
             moved, got blocked, or triggered a transition."""
             return harness.walk(direction, tiles, step_ms)
+
+    if "position" in caps:  # 3DS via Azahar RPC — live world coordinates
+
+        @mcp.tool()
+        def read_position() -> str:
+            """Where you are RIGHT NOW, straight from game RAM — cheap, no image.
+            Reports your world X/Z and how far you moved (screen-relative) since
+            the last call. Use it right after walking to confirm you actually
+            moved and which way, instead of spending context on a screenshot.
+            The map grid is rotated, so directions are approximate."""
+            return harness.read_position()
 
     @mcp.tool()
     def get_screenshot() -> MCPImage:
