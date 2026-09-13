@@ -389,3 +389,24 @@ def test_harness_position_detects_no_movement(tmp_path):
     ])
     h.read_position()
     assert "didn't move" in h.read_position()
+
+
+def test_n3ds_screenshot_defaults_are_legible():
+    # 3DS needs more pixels than a Game Boy (dual screen + touch keyboard),
+    # but Game Boy defaults must stay small (Desktop-jam fix).
+    n = _Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds"})
+    assert (n.shot_width, n.shot_quality) == (800, 80)
+    gb = _Config.from_env({"PIXEL_FLIPPERS_MOCK": "1"})
+    assert (gb.shot_width, gb.shot_quality) == (480, 72)
+    # explicit env still wins
+    o = _Config.from_env({"PIXEL_FLIPPERS_BACKEND": "n3ds",
+                          "PIXEL_FLIPPERS_SHOT_WIDTH": "640",
+                          "PIXEL_FLIPPERS_SHOT_QUALITY": "70"})
+    assert (o.shot_width, o.shot_quality) == (640, 70)
+
+
+def test_n3ds_backend_honors_max_width():
+    from PIL import Image as _Img
+    big = _Img.new("RGB", (2016, 1078), (10, 20, 30))
+    b = N3dsBackend(capturer=lambda: big, max_width=800)
+    assert b.screenshot().width == 800  # downscaled, not left at 2016

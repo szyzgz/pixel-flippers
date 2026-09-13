@@ -525,7 +525,8 @@ def make_emulator(config: Config):
         from .n3ds_backend import N3dsBackend
 
         logger.info("3DS mode: launching/attaching Azahar")
-        return N3dsBackend(rom_path=config.rom_path, player=config.player, slot=config.slot)
+        return N3dsBackend(rom_path=config.rom_path, player=config.player,
+                           slot=config.slot, max_width=config.shot_width)
     logger.info("Booting %s (window=%s)", config.rom_path, config.window)
     return PyBoyEmulator(config.rom_path, config.window, config.scale, config.speed)
 

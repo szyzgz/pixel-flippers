@@ -83,6 +83,12 @@ class Config:
 
         # gba has no RAM decoder yet (Gen 3 is encrypted + pointer-chased)
         default_game = "pokemon_red" if backend in ("pyboy", "mock") else "none"
+
+        # 3DS (Azahar) shows two dense screens incl. a touch keyboard, so its
+        # frames need more pixels than a Game Boy to stay legible — while still
+        # being JPEG-small enough not to pile up and jam Desktop chats.
+        default_shot_width = "800" if backend == "n3ds" else "480"
+        default_shot_quality = "80" if backend == "n3ds" else "72"
         return cls(
             backend=backend,
             rom_path=rom_path,
@@ -96,8 +102,8 @@ class Config:
             bridge_port=int(env.get("PIXEL_FLIPPERS_BRIDGE_PORT", "3000")),
             capture_index=int(env.get("PIXEL_FLIPPERS_CAPTURE", "0")),
             slot=int(env.get("PIXEL_FLIPPERS_SLOT", "1")),
-            shot_width=int(env.get("PIXEL_FLIPPERS_SHOT_WIDTH", "480")),
-            shot_quality=int(env.get("PIXEL_FLIPPERS_SHOT_QUALITY", "72")),
+            shot_width=int(env.get("PIXEL_FLIPPERS_SHOT_WIDTH", default_shot_width)),
+            shot_quality=int(env.get("PIXEL_FLIPPERS_SHOT_QUALITY", default_shot_quality)),
             transport=env.get("PIXEL_FLIPPERS_TRANSPORT", "stdio").lower(),
             port=int(env.get("PIXEL_FLIPPERS_PORT", "8765")),
             player=env.get("PIXEL_FLIPPERS_PLAYER", ""),
