@@ -410,3 +410,22 @@ def test_n3ds_backend_honors_max_width():
     big = _Img.new("RGB", (2016, 1078), (10, 20, 30))
     b = N3dsBackend(capturer=lambda: big, max_width=800)
     assert b.screenshot().width == 800  # downscaled, not left at 2016
+
+
+def test_keycodes_follow_active_keyboard_layout(monkeypatch):
+    import pixel_flippers.n3ds_backend as n
+    # German-QWERTZ-like layout: 'z' and 'y' swapped vs US.
+    german = {"a": 0, "s": 1, "z": 16, "x": 7, "q": 12, "w": 13, "m": 46,
+              "n": 45, "b": 11, "1": 18, "2": 19, "t": 17, "g": 5, "f": 3,
+              "h": 4, "i": 34, "k": 40, "j": 38, "l": 37}
+    monkeypatch.setattr(n, "_layout_char_keycodes", lambda: german)
+    codes = n._build_keycodes()
+    assert codes["x"] == 16   # button X is bound to 'z' -> German keycode 16 (the fix)
+    assert codes["y"] == 7    # button Y is bound to 'x'
+    assert codes["up"] == 126  # circle-pad arrows stay fixed across layouts
+
+    # If the layout can't be read, fall back to US-QWERTY (X -> 'z' -> keycode 6).
+    def boom():
+        raise RuntimeError("no window server")
+    monkeypatch.setattr(n, "_layout_char_keycodes", boom)
+    assert n._build_keycodes()["x"] == 6

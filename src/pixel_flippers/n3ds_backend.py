@@ -50,18 +50,65 @@ STATES_DIR = pathlib.Path(_os.path.expanduser(
 # Env-overridable for other games / if the allocation moves.
 POS_ADDR = int(_os.environ.get("PIXEL_FLIPPERS_POS_ADDR", "0x300068C4"), 16)
 
-# 3DS button -> macOS virtual keycode. Movement (up/down/left/right) maps to
-# the Circle Pad (Azahar default I/K/J/L) because that's what walks in the
-# 3D overworld; the real d-pad is d-prefixed for menus that want it.
-KEYCODES: dict[str, int] = {
-    "a": 0, "b": 1, "x": 6, "y": 7,
-    "l": 12, "r": 13, "zl": 18, "zr": 19,
-    "start": 46, "select": 45, "home": 11,
-    # Overworld movement = Circle Pad, which Azahar maps to the ARROW keys.
-    "up": 126, "down": 125, "left": 123, "right": 124,  # circle pad = arrows
-    "dup": 17, "ddown": 5, "dleft": 3, "dright": 4,     # d-pad T G F H (menus)
-    "cup": 34, "cdown": 40, "cleft": 38, "cright": 37,  # C-stick I K J L (camera)
+# 3DS button -> the KEY CHARACTER Azahar's default profile binds it to (its
+# qt-config.ini stores characters: button_x="z", button_a="a", ...). We resolve
+# each character to a macOS virtual keycode against the ACTIVE keyboard layout,
+# NOT a fixed US table — because the physical key that types a character moves
+# between layouts. On a German QWERTZ keyboard 'z' and 'y' are swapped, so the
+# old US keycode for 'z' typed 'y' there and the X button silently did nothing.
+_BUTTON_CHARS: dict[str, str] = {
+    "a": "a", "b": "s", "x": "z", "y": "x",
+    "l": "q", "r": "w", "zl": "1", "zr": "2",
+    "start": "m", "select": "n", "home": "b",
+    "dup": "t", "ddown": "g", "dleft": "f", "dright": "h",   # d-pad
+    "cup": "i", "cdown": "k", "cleft": "j", "cright": "l",   # C-stick (camera)
 }
+# Circle Pad = the arrow keys: non-character keys, same virtual keycode on every
+# layout, so they're fixed rather than resolved.
+_ARROW_KEYCODES: dict[str, int] = {"up": 126, "down": 125, "left": 123, "right": 124}
+# US-QWERTY keycodes — the fallback when the live layout can't be read (headless
+# / CI) or doesn't produce a needed character.
+_US_KEYCODES: dict[str, int] = {
+    "a": 0, "b": 1, "x": 6, "y": 7, "l": 12, "r": 13, "zl": 18, "zr": 19,
+    "start": 46, "select": 45, "home": 11,
+    "dup": 17, "ddown": 5, "dleft": 3, "dright": 4,
+    "cup": 34, "cdown": 40, "cleft": 38, "cright": 37,
+}
+
+
+def _layout_char_keycodes() -> dict[str, int]:
+    """char -> macOS virtual keycode for the ACTIVE keyboard layout, by asking
+    CoreGraphics what character each keycode 0..127 types right now. A fresh
+    event source per keycode keeps dead-key state (German ``´`` ````` ``^`` ...) from
+    bleeding into the next key's translation."""
+    import Quartz
+
+    table: dict[str, int] = {}
+    for kc in range(128):
+        src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+        ev = Quartz.CGEventCreateKeyboardEvent(src, kc, True)
+        if ev is None:
+            continue
+        _, s = Quartz.CGEventKeyboardGetUnicodeString(ev, 4, None, None)
+        if s and len(s) == 1 and s.isprintable():
+            table.setdefault(s.lower(), kc)
+    return table
+
+
+def _build_keycodes() -> dict[str, int]:
+    """Button -> virtual keycode: arrows fixed, the rest resolved from the
+    active keyboard layout, falling back to US-QWERTY if it can't be read."""
+    codes = dict(_ARROW_KEYCODES)
+    try:
+        char2kc = _layout_char_keycodes()
+    except Exception:
+        char2kc = {}
+    for btn, ch in _BUTTON_CHARS.items():
+        codes[btn] = char2kc.get(ch, _US_KEYCODES[btn])
+    return codes
+
+
+KEYCODES: dict[str, int] = _build_keycodes()
 N3DS_BUTTONS = tuple(KEYCODES)
 
 
