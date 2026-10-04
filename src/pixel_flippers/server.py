@@ -517,6 +517,11 @@ def make_emulator(config: Config):
 
         logger.info("Booting GBA %s (window=%s)", config.rom_path, config.window)
         return GBABackend(config.rom_path, config.window, config.scale, config.player)
+    if config.backend == "nds":
+        from .nds_backend import NDSBackend
+
+        logger.info("Booting DS %s (window=%s)", config.rom_path, config.window)
+        return NDSBackend(config.rom_path, config.window, config.scale, config.player)
     if config.backend == "switch":
         from .switch_backend import SwitchBackend
 

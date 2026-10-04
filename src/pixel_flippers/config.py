@@ -13,7 +13,7 @@ from pathlib import Path
 TRUTHY = {"1", "true", "yes", "on"}
 
 
-BACKENDS = ("pyboy", "gba", "mock", "switch", "n3ds")
+BACKENDS = ("pyboy", "gba", "nds", "mock", "switch", "n3ds")
 
 # What each backend can do — resolved WITHOUT constructing the emulator, so the
 # server can register the right tools before any game window is summoned.
@@ -21,6 +21,7 @@ BACKEND_CAPABILITIES = {
     "pyboy": {"buttons", "frames", "screenshot", "memory", "savestates"},
     "mock": {"buttons", "frames", "screenshot", "memory", "savestates"},
     "gba": {"buttons", "frames", "screenshot", "savestates"},
+    "nds": {"buttons", "frames", "screenshot", "savestates"},
     "switch": {"buttons", "stick", "screenshot"},
     "n3ds": {"buttons", "touch", "screenshot", "savestates", "position"},
 }
@@ -66,7 +67,7 @@ class Config:
         saves = env.get("PIXEL_FLIPPERS_SAVES", "")
 
         rom_path = Path(rom).expanduser() if rom else None
-        if backend in ("pyboy", "gba"):
+        if backend in ("pyboy", "gba", "nds"):
             if rom_path is None:
                 raise SystemExit(
                     "PIXEL_FLIPPERS_ROM is not set. Point it at your own ROM dump, "
