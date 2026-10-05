@@ -13,7 +13,7 @@ from pathlib import Path
 TRUTHY = {"1", "true", "yes", "on"}
 
 
-BACKENDS = ("pyboy", "gba", "nds", "mock", "switch", "n3ds")
+BACKENDS = ("pyboy", "gba", "nds", "melonds", "mock", "switch", "n3ds")
 
 # What each backend can do — resolved WITHOUT constructing the emulator, so the
 # server can register the right tools before any game window is summoned.
@@ -22,6 +22,7 @@ BACKEND_CAPABILITIES = {
     "mock": {"buttons", "frames", "screenshot", "memory", "savestates"},
     "gba": {"buttons", "frames", "screenshot", "savestates"},
     "nds": {"buttons", "frames", "screenshot", "savestates"},
+    "melonds": {"buttons", "touch", "screenshot", "savestates"},
     "switch": {"buttons", "stick", "screenshot"},
     "n3ds": {"buttons", "touch", "screenshot", "savestates", "position"},
 }
@@ -40,7 +41,7 @@ class Config:
     bridge_host: str  # switch backend: the Raspberry Pi running switch_bridge
     bridge_port: int
     capture_index: int  # switch backend: UVC capture card device index
-    slot: int  # n3ds backend: per-player Azahar save-state slot (1-10)
+    slot: int  # save-state slot, per player: n3ds (Azahar) 1-10, melonds 1-8
     shot_width: int   # max screenshot width (px) sent to the model
     shot_quality: int  # JPEG quality for screenshots (Desktop keeps them all — keep small)
     transport: str = "stdio"  # "stdio" (Claude Desktop) or "http" (local service; use the `pf` CLI)
@@ -85,11 +86,12 @@ class Config:
         # gba has no RAM decoder yet (Gen 3 is encrypted + pointer-chased)
         default_game = "pokemon_red" if backend in ("pyboy", "mock") else "none"
 
-        # 3DS (Azahar) shows two dense screens incl. a touch keyboard, so its
-        # frames need more pixels than a Game Boy to stay legible — while still
-        # being JPEG-small enough not to pile up and jam Desktop chats.
-        default_shot_width = "800" if backend == "n3ds" else "480"
-        default_shot_quality = "80" if backend == "n3ds" else "72"
+        # Dual-screen handhelds (3DS/Azahar, DS/melonDS) show two dense screens
+        # incl. a touch keyboard, so their frames need more pixels than a Game Boy
+        # to stay legible — while still being JPEG-small enough not to pile up and
+        # jam Desktop chats. melonDS stacks 256x384, a bit smaller than the 3DS.
+        default_shot_width = "800" if backend == "n3ds" else "512" if backend == "melonds" else "480"
+        default_shot_quality = "80" if backend in ("n3ds", "melonds") else "72"
         return cls(
             backend=backend,
             rom_path=rom_path,

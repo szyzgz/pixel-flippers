@@ -532,6 +532,12 @@ def make_emulator(config: Config):
         logger.info("3DS mode: launching/attaching Azahar")
         return N3dsBackend(rom_path=config.rom_path, player=config.player,
                            slot=config.slot, max_width=config.shot_width)
+    if config.backend == "melonds":
+        from .melonds_backend import MelonDSBackend
+
+        logger.info("DS mode: launching/attaching melonDS")
+        return MelonDSBackend(rom_path=config.rom_path, player=config.player,
+                              slot=config.slot, max_width=config.shot_width)
     logger.info("Booting %s (window=%s)", config.rom_path, config.window)
     return PyBoyEmulator(config.rom_path, config.window, config.scale, config.speed)
 
