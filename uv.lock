@@ -789,6 +789,9 @@ gba = [
     { name = "pygame" },
     { name = "stable-retro" },
 ]
+melonds = [
+    { name = "pyobjc-framework-quartz" },
+]
 n3ds = [
     { name = "pyobjc-framework-quartz" },
 ]
@@ -801,13 +804,14 @@ requires-dist = [
     { name = "mcp", specifier = ">=2.0" },
     { name = "opencv-python", marker = "extra == 'switch'", specifier = ">=4.8" },
     { name = "pillow", specifier = ">=10.0" },
+    { name = "pixel-flippers", extras = ["n3ds"], marker = "extra == 'melonds'" },
     { name = "pyboy", marker = "extra == 'emulator'", specifier = ">=2.4" },
     { name = "pygame", marker = "extra == 'gba'", specifier = ">=2.1" },
     { name = "pyobjc-framework-quartz", marker = "extra == 'n3ds'", specifier = ">=10.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "stable-retro", marker = "extra == 'gba'", specifier = ">=1.0" },
 ]
-provides-extras = ["emulator", "gba", "n3ds", "switch", "dev"]
+provides-extras = ["emulator", "gba", "n3ds", "melonds", "switch", "dev"]
 
 [[package]]
 name = "pluggy"

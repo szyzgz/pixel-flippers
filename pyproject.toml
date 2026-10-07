@@ -14,6 +14,7 @@ dependencies = [
 emulator = ["pyboy>=2.4"]
 gba = ["stable-retro>=1.0", "pygame>=2.1"]
 n3ds = ["pyobjc-framework-Quartz>=10.0"]
+melonds = ["pixel-flippers[n3ds]"]  # window-attach like n3ds: same Quartz dep (PIL is a base dep)
 switch = ["opencv-python>=4.8"]  # capture card frames; NXBT installs on the Pi, not here
 dev = ["pytest>=8"]
 

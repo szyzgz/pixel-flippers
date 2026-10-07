@@ -22,6 +22,13 @@ window-attach backend can hold the controls at a time. While this plays, the
 Azahar/3DS backend can't, and vice versa — yield the window between players.
 (Eyes are unaffected: screencapture by window id needs no focus.)
 
+One melonDS, one player at a time: there's a single running melonDS window, so two
+players (e.g. two chat-Claudes, each a separate connector with its OWN ROM copy and
+save slot) can't share it live. Switching players means fully quitting melonDS and
+letting the next connector open its own ROM; _verify_open_rom refuses to attach to a
+window already running someone else's game rather than drive it — and write a
+save-state slot beside their ROM — by mistake.
+
 Display must be awake: macOS stops delivering synthetic KEY events to apps when
 the display sleeps (laptop lid closed, even with the system kept awake) — touch
 and screencapture still work, keys don't. Matters over Remote Control: keep the
@@ -285,10 +292,12 @@ class MelonDSBackend:
 
     def _ensure_melonds(self) -> None:
         try:
-            self._bounds()  # already up? attach to it.
-            return
+            self._bounds()  # already up?
         except Exception:
             pass
+        else:
+            self._verify_open_rom()  # ...attach only if it's OUR game
+            return
         if not self._rom or not self._rom.is_file():
             raise MelonDSError(f"DS ROM not found: {self._rom}")
         subprocess.Popen(["open", "-a", APP_NAME, str(self._rom)])
@@ -300,6 +309,38 @@ class MelonDSBackend:
             except Exception:
                 continue
         raise MelonDSError("melonDS did not open a game window in time")
+
+    def _verify_open_rom(self) -> None:
+        """Attach-mode safety: refuse to attach to a melonDS that already has a
+        DIFFERENT game open than ours.
+
+        Without this, a second player's connector would attach to the first
+        player's running window, silently drive THEIR game, and write its
+        save-state slot beside THEIR ROM. So compare our ROM to the one melonDS
+        currently has open (RecentROM[0]); a clear mismatch raises instead of
+        attaching. If the recent list can't be read we don't block — the rule
+        still stands in plain words (one player at a time, quit to switch), and
+        the window title is the fallback signal if RecentROM ever proves to lag."""
+        if self._rom is None:
+            return
+        recent = _read_config().get("RecentROM") or []
+        open_rom = recent[0] if recent else None
+        if not open_rom:
+            return
+        try:
+            same = Path(open_rom).expanduser().resolve() == self._rom.expanduser().resolve()
+        except Exception:
+            same = str(open_rom) == str(self._rom)
+        if not same:
+            raise MelonDSError(
+                "melonDS already has a different game open:\n"
+                f"    {open_rom}\n"
+                f"but this connector ({self.player or 'this player'}) plays:\n"
+                f"    {self._rom}\n"
+                "melonDS is window-attach — one game, one player at a time. Finish the "
+                "other player's turn, fully quit melonDS, then let this connector open "
+                "its own ROM."
+            )
 
     def _state_file(self, slot: int) -> Path:
         """Where melonDS writes save-state slot `slot`: <rom-stem>.ml<slot>, in

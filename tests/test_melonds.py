@@ -132,6 +132,37 @@ def test_screenshot_downscales_to_max_width():
     assert out.size == (512, 384)
 
 
+# --- attach-mode ROM-identity guard (two players, one melonDS) -------------
+def _attach_backend(rom, player, monkeypatch, recent):
+    """Construct a backend that ATTACHES (a window is already up) with a faked
+    melonDS recent-ROM list — exercising _verify_open_rom at construction."""
+    monkeypatch.setattr(m, "_read_config", lambda *a, **k: ({"RecentROM": recent} if recent is not None else {}))
+    return MelonDSBackend(
+        rom_path=rom, player=player, activator=lambda: None, keymap={},
+        bounds_fn=lambda: (0, 0, 620, 960, 1),  # a window exists -> attach path
+    )
+
+
+def test_attach_refuses_when_a_different_rom_is_open(tmp_path, monkeypatch):
+    rom = tmp_path / "Ours.nds"
+    rom.write_bytes(b"\x00")
+    with pytest.raises(MelonDSError, match="SomeoneElse"):
+        _attach_backend(rom, "Fabby", monkeypatch, ["/Users/jackie/roms/SomeoneElse.nds"])
+
+
+def test_attach_allows_when_our_own_rom_is_open(tmp_path, monkeypatch):
+    rom = tmp_path / "Ours.nds"
+    rom.write_bytes(b"\x00")
+    _attach_backend(rom, "Claudie", monkeypatch, [str(rom)])  # no raise
+
+
+def test_attach_allows_when_open_rom_is_unknown(tmp_path, monkeypatch):
+    rom = tmp_path / "Ours.nds"
+    rom.write_bytes(b"\x00")
+    _attach_backend(rom, "Claudie", monkeypatch, [])   # empty recent list -> don't block
+    _attach_backend(rom, "Claudie", monkeypatch, None)  # no config at all -> don't block
+
+
 def test_save_and_load_state_roundtrip(tmp_path, monkeypatch):
     # no real config: SavestatePath empty -> state lives beside the ROM (tmp)
     monkeypatch.setattr(m, "_read_config", lambda *a, **k: {})
